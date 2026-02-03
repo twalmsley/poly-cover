@@ -3,6 +3,7 @@ node_modules/
 
 # Build output
 dist/
+poly-cover.zip
 
 # Environment
 .env

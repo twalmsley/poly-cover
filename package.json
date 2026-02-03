@@ -1,11 +1,14 @@
 {
   "name": "poly",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "package": "cd dist && zip -r ../poly-cover.zip . && cd ..",
+    "release": "npm run package && gh release create v$(node -p \"require('./package.json').version\") poly-cover.zip --title \"v$(node -p \"require('./package.json').version\")\" --notes-file RELEASE_NOTES.md"
   },
   "dependencies": {
     "martinez-polygon-clipping": "^0.8.1"
