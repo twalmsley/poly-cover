@@ -8,7 +8,7 @@ A web app that draws polygons and covers their interior with a minimal set of ax
 
 - **Draw polygons** — Add vertices by clicking; close a polygon by clicking near the first point or double-clicking.
 - **Union** — Multiple polygons are combined (union) before covering, so overlapping or separate shapes become one region (with holes if needed).
-- **Covering** — The app fills the region with a grid of squares (smallest side = *min square size*), then repeatedly merges adjacent *k×k* blocks into single larger squares (up to *max merge*). Larger *k* gives fewer, bigger squares but more work per step.
+- **Covering** — The app fills the region with a grid of squares (smallest side = *min square size*), then repeatedly merges adjacent *k×k* blocks into single larger squares. Merge sizes *k* are tried by halving from *max k* down to *min k* (e.g. 128, 64, 32, … 2). Larger *max k* gives fewer, bigger squares but more work per step.
 - **Animation** — The covering runs in steps so you see the grid appear and then blocks merge.
 
 ## Run it
@@ -38,8 +38,9 @@ npm run preview
 | **New polygon** | Finish the current polygon and start a new one (current is kept if it has at least 3 points). |
 | **Run covering** | Run the covering algorithm on all closed polygons (and the current one if it has ≥3 points). |
 | **Min square size** | Smallest grid cell side (1–200). Smaller = finer grid, more squares before merging. |
-| **Max merge (k×k)** | Largest merge block size (2–50). Larger = fewer, bigger squares; more merge steps. |
-| **Squares** | Shows the current number of covering rectangles. |
+| **Max k** | Largest *k×k* merge block size (2–1024). Merge tries k by halving: max k, max k/2, max k/4, … down to min k. |
+| **Min k** | Smallest *k* used when halving (2–1024). Halving stops at this value. |
+| **Squares · Iterations** | Shows the current number of covering rectangles and the merge iteration count. |
 | **Clear all** | Remove all polygons and covering results. |
 
 **Viewport:**
