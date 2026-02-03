@@ -15,6 +15,7 @@ const btnRun = document.getElementById('btn-run');
 const btnClear = document.getElementById('btn-clear');
 const inputMinSize = document.getElementById('min-size');
 const inputMaxK = document.getElementById('max-k');
+const inputMinK = document.getElementById('min-k');
 const squareCountEl = document.getElementById('square-count');
 
 const canvasState = makeCanvasState(canvas);
@@ -24,6 +25,7 @@ const state = {
   currentPolygon: null,
   rectangles: [],
   remaining: [],
+  coveringIteration: 0,
   drawMode: false,
   coveringRunning: false,
   spaceDown: false,
@@ -33,9 +35,11 @@ const CLOSE_HIT_THRESHOLD = 12;
 
 function updateSquareCount() {
   if (squareCountEl) {
-    squareCountEl.textContent = state.rectangles.length > 0
-      ? `Squares: ${state.rectangles.length}`
-      : 'Squares: —';
+    const sq = state.rectangles.length > 0 ? `Squares: ${state.rectangles.length}` : 'Squares: —';
+    const iter = state.coveringRunning || state.rectangles.length > 0
+      ? `Iterations: ${state.coveringIteration}`
+      : 'Iterations: —';
+    squareCountEl.textContent = `${sq}  ·  ${iter}`;
   }
 }
 
@@ -107,6 +111,7 @@ function clearAll() {
   state.currentPolygon = null;
   state.rectangles = [];
   state.remaining = [];
+  state.coveringIteration = 0;
   state.coveringRunning = false;
   draw();
 }
@@ -121,6 +126,7 @@ function startCovering() {
   state.coveringRunning = true;
   state.rectangles = [];
   state.remaining = [];
+  state.coveringIteration = 0;
 
   const merged = unionPolygons(closed);
   if (merged.length === 0) {
@@ -130,9 +136,10 @@ function startCovering() {
   }
 
   const minSize = Math.max(1, Math.min(500, parseInt(inputMinSize.value, 10) || 8));
-  const maxK = inputMaxK ? Math.max(2, Math.min(50, parseInt(inputMaxK.value, 10) || 8)) : 8;
+  const maxK = inputMaxK ? Math.max(2, Math.min(1024, parseInt(inputMaxK.value, 10) || 8)) : 8;
+  const minK = inputMinK ? Math.max(2, Math.min(1024, parseInt(inputMinK.value, 10) || 2)) : 2;
 
-  const gen = runCovering(merged, { minSize, maxK });
+  const gen = runCovering(merged, { minSize, maxK, minK });
   const delay = 80;
 
   function step() {
@@ -144,6 +151,7 @@ function startCovering() {
     }
     state.rectangles = value.rectangles;
     state.remaining = value.remaining;
+    state.coveringIteration = value.iteration ?? state.coveringIteration;
     draw();
     setTimeout(step, delay);
   }

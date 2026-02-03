@@ -51,15 +51,17 @@ function hasBlock(squareSet, x, y, size, k) {
 
 /**
  * Find one k×k block to merge (largest k first, then by size). Returns { x, y, size, k } or null.
+ * Optional excludeKeys: set of square keys to skip (e.g. squares already considered).
  */
-function findMerge(squareSet, squareList, maxK) {
+function findMerge(squareSet, squareList, maxK, minK, excludeKeys = null) {
   const bySize = new Map();
   for (const s of squareList) {
+    if (excludeKeys && excludeKeys.has(squareKey(s))) continue;
     if (!bySize.has(s.size)) bySize.set(s.size, []);
     bySize.get(s.size).push(s);
   }
   const sizes = [...bySize.keys()].sort((a, b) => a - b);
-  for (const k of descendingRange(maxK, 2)) {
+  for (const k of kHalvingRange(maxK, minK)) {
     for (const size of sizes) {
       for (const s of bySize.get(size)) {
         const { x, y } = s;
@@ -72,20 +74,34 @@ function findMerge(squareSet, squareList, maxK) {
   return null;
 }
 
-function* descendingRange(hi, lo) {
-  for (let i = hi; i >= lo; i--) yield i;
+/** Yields k values by halving from maxK down to minK (e.g. 1024, 512, 256, ..., 2). */
+function* kHalvingRange(maxK, minK) {
+  let k = Math.floor(maxK);
+  const min = Math.max(2, Math.floor(minK));
+  const seen = new Set();
+  while (k >= min) {
+    if (!seen.has(k)) {
+      seen.add(k);
+      yield k;
+    }
+    const next = Math.floor(k / 2);
+    if (next >= k) break;
+    k = next;
+  }
 }
 
 /**
- * Run grid-fill + merge covering: yields { rectangles, remaining } for animation.
- * Options: minSize (smallest square side), maxK (max merge block size 2..maxK, default 8).
+ * Run grid-fill + merge covering: yields { rectangles, remaining, iteration } for animation.
+ * Options: minSize (smallest square side), maxK (max merge block, up to 1024), minK (min k, default 2).
+ * k is tried by halving: maxK, maxK/2, maxK/4, ... down to minK.
  */
 export function* runCovering(polygons, options = {}) {
-  const { minSize = 8, maxK = DEFAULT_MAX_K } = options;
-  const capK = Math.max(2, Math.min(50, maxK));
+  const { minSize = 8, maxK = DEFAULT_MAX_K, minK = 2 } = options;
+  const capK = Math.max(2, Math.min(1024, Math.floor(maxK)));
+  const capMinK = Math.max(2, Math.min(capK, Math.floor(minK)));
   const regions = unionPolygons(polygons);
   if (!regions || regions.length === 0) {
-    yield { rectangles: [], remaining: [] };
+    yield { rectangles: [], remaining: [], iteration: 0 };
     return;
   }
 
@@ -94,12 +110,29 @@ export function* runCovering(polygons, options = {}) {
     squares = squares.concat(fillGrid(reg, minSize));
   }
 
-  yield { rectangles: squaresToRects(squares), remaining: [] };
+  let iteration = 0;
+  yield { rectangles: squaresToRects(squares), remaining: [], iteration };
 
   const squareSet = new Set(squares.map(squareKey));
+  /** Keys of squares that have been merged (removed); never consider again. */
+  const mergedKeys = new Set();
 
   while (true) {
-    const merge = findMerge(squareSet, squares, capK);
+    let merge = null;
+    if (squares.length > 0) {
+      const last = squares[squares.length - 1];
+      for (const k of kHalvingRange(capK, capMinK)) {
+        if (hasBlock(squareSet, last.x, last.y, last.size, k)) {
+          merge = { x: last.x, y: last.y, size: last.size, k };
+          break;
+        }
+      }
+    }
+    if (!merge) {
+      const excludeKeys = new Set(mergedKeys);
+      if (squares.length > 0) excludeKeys.add(squareKey(squares[squares.length - 1]));
+      merge = findMerge(squareSet, squares, capK, capMinK, excludeKeys);
+    }
     if (!merge) break;
 
     const { x, y, size, k } = merge;
@@ -111,17 +144,20 @@ export function* runCovering(polygons, options = {}) {
       }
     }
     for (const s of toRemove) {
-      squareSet.delete(squareKey(s));
+      const key = squareKey(s);
+      squareSet.delete(key);
+      mergedKeys.add(key);
     }
     squareSet.add(squareKey({ x, y, size: newSize }));
 
     squares = squares.filter(s => squareSet.has(squareKey(s)));
     squares.push({ x, y, size: newSize });
 
-    yield { rectangles: squaresToRects(squares), remaining: [] };
+    iteration++;
+    yield { rectangles: squaresToRects(squares), remaining: [], iteration };
   }
 
-  yield { rectangles: squaresToRects(squares), remaining: [] };
+  yield { rectangles: squaresToRects(squares), remaining: [], iteration };
 }
 
 /** Polygon as array of {x,y} -> GeoJSON polygon coords (closed ring). */
@@ -184,7 +220,9 @@ export function unionPolygons(polygonList) {
   if (isMultiPolygon) {
     return acc.map(poly => ({ exterior: ringToPoints(poly[0]), holes: poly.slice(1).map(ringToPoints).filter(p => p.length > 0) }));
   }
-  const rings = acc.map(ring => ringToPoints(ring)).filter(p => p.length >= 3);
+  // Single polygon (possibly with holes): acc[0] is Polygon = Ring[]
+  const polygon = acc[0];
+  const rings = polygon.map(ring => ringToPoints(ring)).filter(p => p.length >= 3);
   if (rings.length === 0) return [];
   const byArea = rings.map(r => ({ r, a: Math.abs(signedArea(r)) }));
   byArea.sort((a, b) => b.a - a.a);
