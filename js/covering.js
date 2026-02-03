@@ -82,7 +82,7 @@ function* descendingRange(hi, lo) {
  */
 export function* runCovering(polygons, options = {}) {
   const { minSize = 8, maxK = DEFAULT_MAX_K } = options;
-  const capK = Math.max(2, Math.min(16, maxK));
+  const capK = Math.max(2, Math.min(50, maxK));
   const regions = unionPolygons(polygons);
   if (!regions || regions.length === 0) {
     yield { rectangles: [], remaining: [] };

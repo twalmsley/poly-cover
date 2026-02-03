@@ -15,6 +15,7 @@ const btnRun = document.getElementById('btn-run');
 const btnClear = document.getElementById('btn-clear');
 const inputMinSize = document.getElementById('min-size');
 const inputMaxK = document.getElementById('max-k');
+const squareCountEl = document.getElementById('square-count');
 
 const canvasState = makeCanvasState(canvas);
 
@@ -30,7 +31,16 @@ const state = {
 
 const CLOSE_HIT_THRESHOLD = 12;
 
+function updateSquareCount() {
+  if (squareCountEl) {
+    squareCountEl.textContent = state.rectangles.length > 0
+      ? `Squares: ${state.rectangles.length}`
+      : 'Squares: —';
+  }
+}
+
 function draw() {
+  updateSquareCount();
   const ctx = canvasState.ctx;
   ctx.save();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -120,7 +130,7 @@ function startCovering() {
   }
 
   const minSize = Math.max(1, Math.min(500, parseInt(inputMinSize.value, 10) || 8));
-  const maxK = inputMaxK ? Math.max(2, Math.min(16, parseInt(inputMaxK.value, 10) || 8)) : 8;
+  const maxK = inputMaxK ? Math.max(2, Math.min(50, parseInt(inputMaxK.value, 10) || 8)) : 8;
 
   const gen = runCovering(merged, { minSize, maxK });
   const delay = 80;
