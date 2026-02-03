@@ -2,7 +2,7 @@
 
 A web app that draws polygons and covers their interior with a minimal set of axis-aligned squares. You draw one or more polygons, then run a covering algorithm that fills them with a grid of small squares and merges adjacent blocks into larger squares to reduce the total count.
 
-![[polygon-cover.png]]
+![diagram](polygon-cover.png)
 
 ## What it does
 
