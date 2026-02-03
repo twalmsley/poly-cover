@@ -14,6 +14,7 @@ const btnNew = document.getElementById('btn-new');
 const btnRun = document.getElementById('btn-run');
 const btnClear = document.getElementById('btn-clear');
 const inputMinSize = document.getElementById('min-size');
+const inputMaxK = document.getElementById('max-k');
 
 const canvasState = makeCanvasState(canvas);
 
@@ -119,8 +120,9 @@ function startCovering() {
   }
 
   const minSize = Math.max(1, Math.min(500, parseInt(inputMinSize.value, 10) || 8));
+  const maxK = inputMaxK ? Math.max(2, Math.min(16, parseInt(inputMaxK.value, 10) || 8)) : 8;
 
-  const gen = runCovering(merged, { minSize });
+  const gen = runCovering(merged, { minSize, maxK });
   const delay = 80;
 
   function step() {

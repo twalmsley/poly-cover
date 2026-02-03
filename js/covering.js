@@ -1,10 +1,12 @@
 /**
- * Rectangle covering: grid fill with smallest squares, then recursively merge
- * 4 adjacent squares (2x2) into one larger square until no merges possible.
+ * Rectangle covering: grid fill with smallest squares, then merge k×k blocks
+ * (k = 2..maxK) into single squares. Prefers larger k to minimise square count.
  */
 
 import * as martinez from 'martinez-polygon-clipping';
 import { rectInsideRegion, bbox } from './drawing.js';
+
+const DEFAULT_MAX_K = 8;
 
 function squareKey(s) {
   return `${s.x},${s.y},${s.size}`;
@@ -34,35 +36,53 @@ function fillGrid(region, minSize) {
 }
 
 /**
- * Find one 2x2 block of same-size squares that can be merged. Returns { x, y, size } of top-left, or null.
+ * Check if all k×k squares exist with top-left at (x, y) and given size.
  */
-function findMerge(squareSet, squareList) {
+function hasBlock(squareSet, x, y, size, k) {
+  for (let di = 0; di < k; di++) {
+    for (let dj = 0; dj < k; dj++) {
+      if (!squareSet.has(squareKey({ x: x + di * size, y: y + dj * size, size }))) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+/**
+ * Find one k×k block to merge (largest k first, then by size). Returns { x, y, size, k } or null.
+ */
+function findMerge(squareSet, squareList, maxK) {
   const bySize = new Map();
   for (const s of squareList) {
     if (!bySize.has(s.size)) bySize.set(s.size, []);
     bySize.get(s.size).push(s);
   }
   const sizes = [...bySize.keys()].sort((a, b) => a - b);
-  for (const size of sizes) {
-    for (const s of bySize.get(size)) {
-      const { x, y } = s;
-      const k1 = squareKey({ x: x + size, y, size });
-      const k2 = squareKey({ x, y: y + size, size });
-      const k3 = squareKey({ x: x + size, y: y + size, size });
-      if (squareSet.has(k1) && squareSet.has(k2) && squareSet.has(k3)) {
-        return { x, y, size };
+  for (const k of descendingRange(maxK, 2)) {
+    for (const size of sizes) {
+      for (const s of bySize.get(size)) {
+        const { x, y } = s;
+        if (hasBlock(squareSet, x, y, size, k)) {
+          return { x, y, size, k };
+        }
       }
     }
   }
   return null;
 }
 
+function* descendingRange(hi, lo) {
+  for (let i = hi; i >= lo; i--) yield i;
+}
+
 /**
  * Run grid-fill + merge covering: yields { rectangles, remaining } for animation.
- * Options: minSize (smallest square side). Merges until no 2x2 blocks remain.
+ * Options: minSize (smallest square side), maxK (max merge block size 2..maxK, default 8).
  */
 export function* runCovering(polygons, options = {}) {
-  const { minSize = 8 } = options;
+  const { minSize = 8, maxK = DEFAULT_MAX_K } = options;
+  const capK = Math.max(2, Math.min(16, maxK));
   const regions = unionPolygons(polygons);
   if (!regions || regions.length === 0) {
     yield { rectangles: [], remaining: [] };
@@ -79,17 +99,17 @@ export function* runCovering(polygons, options = {}) {
   const squareSet = new Set(squares.map(squareKey));
 
   while (true) {
-    const merge = findMerge(squareSet, squares);
+    const merge = findMerge(squareSet, squares, capK);
     if (!merge) break;
 
-    const { x, y, size } = merge;
-    const newSize = size * 2;
-    const toRemove = [
-      { x, y, size },
-      { x: x + size, y, size },
-      { x, y: y + size, size },
-      { x: x + size, y: y + size, size },
-    ];
+    const { x, y, size, k } = merge;
+    const newSize = size * k;
+    const toRemove = [];
+    for (let di = 0; di < k; di++) {
+      for (let dj = 0; dj < k; dj++) {
+        toRemove.push({ x: x + di * size, y: y + dj * size, size });
+      }
+    }
     for (const s of toRemove) {
       squareSet.delete(squareKey(s));
     }
