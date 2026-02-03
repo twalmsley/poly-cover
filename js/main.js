@@ -3,7 +3,7 @@
  */
 
 import { makeCanvasState, drawPolygon, drawRect, drawRemaining } from './canvas.js';
-import { runCovering, unionPolygons } from './covering.js';
+import { runCovering } from './covering.js';
 import { hitTestPolygonEdge } from './drawing.js';
 
 const canvas = document.getElementById('c');
@@ -128,18 +128,11 @@ function startCovering() {
   state.remaining = [];
   state.coveringIteration = 0;
 
-  const merged = unionPolygons(closed);
-  if (merged.length === 0) {
-    state.coveringRunning = false;
-    draw();
-    return;
-  }
-
   const minSize = Math.max(1, Math.min(500, parseInt(inputMinSize.value, 10) || 8));
   const maxK = inputMaxK ? Math.max(2, Math.min(1024, parseInt(inputMaxK.value, 10) || 8)) : 8;
   const minK = inputMinK ? Math.max(2, Math.min(1024, parseInt(inputMinK.value, 10) || 2)) : 2;
 
-  const gen = runCovering(merged, { minSize, maxK, minK });
+  const gen = runCovering(closed, { minSize, maxK, minK });
   const delay = 80;
 
   function step() {
