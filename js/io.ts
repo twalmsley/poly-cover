@@ -4,7 +4,7 @@
  * Rectangles: array of { x, y, w, h }.
  */
 
-import type { Point, Polygon, Rectangle, AppState, ImportResult } from './types.js';
+import type { Point, Polygon, Rectangle, Circle, AppState, ImportResult } from './types.js';
 
 /** Format version for tagged export; import accepts this or legacy untagged shapes. */
 export const EXPORT_FORMAT_VERSION = 1;
@@ -86,6 +86,7 @@ export function exportAllJSON(state: AppState): string {
       version: EXPORT_FORMAT_VERSION,
       polygons,
       rectangles: state.rectangles || [],
+      circles: state.circles || [],
     },
     null,
     2
@@ -124,6 +125,20 @@ function validateRectangles(data: unknown): Rectangle[] {
   return out;
 }
 
+function validateCircles(data: unknown): Circle[] {
+  if (!Array.isArray(data)) throw new Error('Circles must be an array');
+  const out: Circle[] = [];
+  for (const c of data) {
+    if (c == null || typeof c !== 'object' ||
+        typeof (c as Circle).cx !== 'number' || typeof (c as Circle).cy !== 'number' || typeof (c as Circle).r !== 'number') {
+      throw new Error('Each circle must be { cx, cy, r } with numbers');
+    }
+    const circle = c as Circle;
+    out.push({ cx: circle.cx, cy: circle.cy, r: circle.r });
+  }
+  return out;
+}
+
 export function importFromJSON(jsonString: string): ImportResult {
   if (typeof jsonString !== 'string' || !jsonString.trim()) {
     throw new Error('Empty or invalid input');
@@ -136,16 +151,25 @@ export function importFromJSON(jsonString: string): ImportResult {
   }
 
   if (parsed && typeof parsed === 'object' && typeof (parsed as { type?: string }).type === 'string') {
-    const tagged = parsed as { type: string; data?: unknown; polygons?: unknown; rectangles?: unknown };
+    const tagged = parsed as {
+      type: string;
+      data?: unknown;
+      polygons?: unknown;
+      rectangles?: unknown;
+      circles?: unknown;
+    };
     switch (tagged.type) {
       case 'polygons':
         return { polygons: validatePolygons(tagged.data != null ? tagged.data : []) };
       case 'rectangles':
         return { rectangles: validateRectangles(tagged.data != null ? tagged.data : []) };
+      case 'circles':
+        return { circles: validateCircles(tagged.data != null ? tagged.data : []) };
       case 'session':
         return {
           polygons: validatePolygons(tagged.polygons != null ? tagged.polygons : []),
           rectangles: validateRectangles(tagged.rectangles != null ? tagged.rectangles : []),
+          circles: validateCircles(tagged.circles != null ? tagged.circles : []),
         };
       default:
         throw new Error('Unknown export type: ' + tagged.type);
@@ -156,18 +180,22 @@ export function importFromJSON(jsonString: string): ImportResult {
     return { polygons: validatePolygons(parsed) };
   }
   if (parsed && typeof parsed === 'object') {
-    const obj = parsed as { polygons?: unknown; rectangles?: unknown };
+    const obj = parsed as { polygons?: unknown; rectangles?: unknown; circles?: unknown };
     if (Array.isArray(obj.polygons)) {
       return {
         polygons: validatePolygons(obj.polygons),
         rectangles: Array.isArray(obj.rectangles) ? validateRectangles(obj.rectangles) : [],
+        circles: Array.isArray(obj.circles) ? validateCircles(obj.circles) : [],
       };
     }
     if (Array.isArray(obj.rectangles) && !Array.isArray(obj.polygons)) {
       return { rectangles: validateRectangles(obj.rectangles) };
     }
+    if (Array.isArray(obj.circles) && !Array.isArray(obj.polygons)) {
+      return { circles: validateCircles(obj.circles) };
+    }
   }
-  throw new Error('Expected tagged JSON (type: "polygons"|"rectangles"|"session") or legacy array / { polygons } / { rectangles }');
+  throw new Error('Expected tagged JSON (type: "polygons"|"rectangles"|"circles"|"session") or legacy array / { polygons } / { rectangles }');
 }
 
 /** @deprecated Use importFromJSON. Parse JSON and return { polygons } only (legacy). */

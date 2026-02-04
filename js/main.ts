@@ -2,7 +2,7 @@
  * App state, event handlers, and animation loop.
  */
 
-import { makeCanvasState, drawPolygon, drawRect, drawRemaining } from './canvas.js';
+import { makeCanvasState, drawPolygon, drawRect, drawCircle, drawRemaining } from './canvas.js';
 import { runCovering, getUnionArea } from './covering.js';
 import { hitTestPolygonEdge, pointInPolygon } from './drawing.js';
 import {
@@ -14,7 +14,7 @@ import {
   importFromJSON,
 } from './io.js';
 import { PRESETS } from './presets.js';
-import type { AppState, Point, Polygon, Rectangle, Bounds, ImportResult } from './types.js';
+import type { AppState, Point, Polygon, Rectangle, Circle, Bounds, ImportResult, CoveringShape } from './types.js';
 
 const canvas = document.getElementById('c') as HTMLCanvasElement;
 const wrap = document.getElementById('canvas-wrap') as HTMLElement;
@@ -26,6 +26,7 @@ const btnClear = document.getElementById('btn-clear') as HTMLButtonElement | nul
 const btnResetZoom = document.getElementById('btn-reset-zoom') as HTMLButtonElement | null;
 const btnUndo = document.getElementById('btn-undo') as HTMLButtonElement | null;
 const btnRedo = document.getElementById('btn-redo') as HTMLButtonElement | null;
+const inputCoveringShape = document.getElementById('covering-shape') as HTMLSelectElement | null;
 const inputMinSize = document.getElementById('min-size') as HTMLInputElement | null;
 const inputSnapToGrid = document.getElementById('snap-to-grid') as HTMLInputElement | null;
 const inputMaxK = document.getElementById('max-k') as HTMLInputElement | null;
@@ -41,6 +42,7 @@ const state: AppState = {
   polygons: [],
   currentPolygon: null,
   rectangles: [],
+  circles: [],
   remaining: [],
   coveringIteration: 0,
   drawMode: false,
@@ -139,15 +141,16 @@ function applyImport(result: ImportResult, toastMessage: string | null = null): 
     state.undoStack = [];
     state.redoStack = [];
   }
-  if (result.rectangles != null) {
-    state.rectangles = result.rectangles;
-    state.remaining = [];
-    state.coveringIteration = state.rectangles.length > 0 ? 1 : 0;
-  }
-  if (result.polygons == null && result.rectangles == null) {
+  state.rectangles = result.rectangles ?? [];
+  state.circles = result.circles ?? [];
+  state.remaining = [];
+  state.coveringIteration = state.rectangles.length > 0 || state.circles.length > 0 ? 1 : 0;
+
+  if (result.polygons == null && result.rectangles == null && result.circles == null) {
     state.polygons = [];
     state.currentPolygon = null;
     state.rectangles = [];
+    state.circles = [];
     state.remaining = [];
     state.coveringIteration = 0;
     state.undoStack = [];
@@ -161,15 +164,27 @@ function applyImport(result: ImportResult, toastMessage: string | null = null): 
   } else {
     const np = result.polygons?.length ?? 0;
     const nr = result.rectangles?.length ?? 0;
+    const nc = result.circles?.length ?? 0;
     const parts: string[] = [];
     if (np > 0) parts.push(`${np} polygon${np === 1 ? '' : 's'}`);
     if (nr > 0) parts.push(`${nr} rectangle${nr === 1 ? '' : 's'}`);
+    if (nc > 0) parts.push(`${nc} circle${nc === 1 ? '' : 's'}`);
     showToast(parts.length ? `Imported ${parts.join(', ')}` : 'Imported (empty)');
   }
 }
 
-function getCoveredArea(rectangles: Rectangle[]): number {
+function getCoveredArea(rectangles: Rectangle[], circles?: Circle[], shape?: CoveringShape): number {
+  const s = shape ?? getCoveringShape();
+  if (s === 'circles' && circles?.length) {
+    return circles.reduce((sum, c) => sum + Math.PI * c.r * c.r, 0);
+  }
   return (rectangles || []).reduce((sum, r) => sum + (r.w ?? r.width ?? 0) * (r.h ?? r.height ?? 0), 0);
+}
+
+function getShapeCount(): number {
+  const s = getCoveringShape();
+  if (s === 'circles') return state.circles.length;
+  return state.rectangles.length;
 }
 
 function getPolygonListForArea(): Polygon[] {
@@ -210,14 +225,36 @@ function getWorldBounds(): Bounds | null {
     maxY = Math.max(maxY, y + h);
     hasAny = true;
   }
+  for (const c of state.circles) {
+    minX = Math.min(minX, c.cx - c.r);
+    minY = Math.min(minY, c.cy - c.r);
+    maxX = Math.max(maxX, c.cx + c.r);
+    maxY = Math.max(maxY, c.cy + c.r);
+    hasAny = true;
+  }
   if (!hasAny) return null;
   return { minX, minY, maxX, maxY };
 }
 
+function getCoveringShape(): CoveringShape {
+  const v = inputCoveringShape?.value;
+  if (v === 'rectangles' || v === 'circles') return v;
+  return 'squares';
+}
+
+const SHAPE_LABELS: Record<CoveringShape, string> = {
+  squares: 'Squares',
+  rectangles: 'Shapes',
+  circles: 'Circles',
+};
+
 function updateSquareCount(): void {
   if (squareCountEl) {
-    const sq = state.rectangles.length > 0 ? `Squares: ${state.rectangles.length}` : 'Squares: —';
-    const iter = state.coveringRunning || state.rectangles.length > 0
+    const shape = getCoveringShape();
+    const label = SHAPE_LABELS[shape];
+    const n = getShapeCount();
+    const sq = n > 0 ? `${label}: ${n}` : `${label}: —`;
+    const iter = state.coveringRunning || n > 0
       ? `Iterations: ${state.coveringIteration}`
       : 'Iterations: —';
     squareCountEl.textContent = `${sq}  ·  ${iter}`;
@@ -228,20 +265,22 @@ function updateStats(): void {
   if (!statsAreaEl) return;
   const polygonList = getPolygonListForArea();
   const polygonArea = polygonList.length > 0 ? getUnionArea(polygonList) : null;
-  const coveredArea = state.rectangles.length > 0 ? getCoveredArea(state.rectangles) : null;
-  const n = state.rectangles.length;
+  const shape = getCoveringShape();
+  const coveredArea = getCoveredArea(state.rectangles, state.circles, shape);
+  const n = getShapeCount();
   const efficiency = n > 0 && polygonArea != null ? polygonArea / n : null;
 
   const coveragePct =
-    polygonArea != null && polygonArea > 0 && coveredArea != null
+    polygonArea != null && polygonArea > 0 && coveredArea != null && coveredArea > 0
       ? (coveredArea / polygonArea) * 100
       : null;
   const coverageStr =
     coveragePct != null ? `${coveragePct.toFixed(1)}% coverage` : 'Coverage: —';
 
   const paStr = polygonArea != null ? polygonArea.toFixed(1) + ' units²' : '—';
-  const caStr = coveredArea != null ? coveredArea.toFixed(1) + ' units²' : '—';
-  const effStr = efficiency != null ? efficiency.toFixed(1) + ' units²/square' : '—';
+  const caStr = coveredArea != null && coveredArea > 0 ? coveredArea.toFixed(1) + ' units²' : '—';
+  const unitLabel = shape === 'squares' ? 'units²/square' : 'units²/shape';
+  const effStr = efficiency != null ? efficiency.toFixed(1) + ' ' + unitLabel : '—';
   statsAreaEl.textContent = `Polygon area: ${paStr}  ·  Covered area: ${caStr}  ·  Efficiency: ${effStr}  ·  ${coverageStr}`;
 }
 
@@ -263,8 +302,11 @@ function draw(): void {
     drawRemaining(ctx, state.remaining);
   }
 
-  for (const rect of state.rectangles) {
-    drawRect(ctx, rect);
+  const shape = getCoveringShape();
+  if (shape === 'circles') {
+    for (const c of state.circles) drawCircle(ctx, c);
+  } else {
+    for (const rect of state.rectangles) drawRect(ctx, rect);
   }
 
   for (let i = 0; i < state.polygons.length; i++) {
@@ -363,6 +405,7 @@ function clearAll(): void {
   state.editMode = false;
   state.selectedPolygonIndex = null;
   state.rectangles = [];
+  state.circles = [];
   state.remaining = [];
   state.coveringIteration = 0;
   state.coveringRunning = false;
@@ -502,6 +545,7 @@ function startCovering(): void {
   state.coveringRunning = true;
   state.coveringPaused = false;
   state.rectangles = [];
+  state.circles = [];
   state.remaining = [];
   state.coveringIteration = 0;
   coveringTimeoutId = null;
@@ -511,8 +555,9 @@ function startCovering(): void {
   const minSize = Math.max(1, Math.min(500, parseInt(inputMinSize?.value ?? '8', 10) || 8));
   const maxK = inputMaxK ? Math.max(2, Math.min(1024, parseInt(inputMaxK.value, 10) || 8)) : 8;
   const minK = inputMinK ? Math.max(2, Math.min(1024, parseInt(inputMinK.value, 10) || 2)) : 2;
+  const shape = getCoveringShape();
 
-  const gen = runCovering(closed, { minSize, maxK, minK });
+  const gen = runCovering(closed, { minSize, maxK, minK, shape });
   const instant = inputInstantRun?.checked ?? false;
   const delay = getStepDelayMs();
 
@@ -541,8 +586,9 @@ function startCovering(): void {
           finish();
           return;
         }
-        state.rectangles = value.rectangles;
-        state.remaining = value.remaining;
+        state.rectangles = value.rectangles ?? [];
+        state.circles = value.circles ?? [];
+        state.remaining = value.remaining ?? [];
         state.coveringIteration = value.iteration ?? state.coveringIteration;
       }
       coveringRafId = requestAnimationFrame(runInstant);
@@ -559,8 +605,9 @@ function startCovering(): void {
       finish();
       return;
     }
-    state.rectangles = value.rectangles;
-    state.remaining = value.remaining;
+    state.rectangles = value.rectangles ?? [];
+    state.circles = value.circles ?? [];
+    state.remaining = value.remaining ?? [];
     state.coveringIteration = value.iteration ?? state.coveringIteration;
     draw();
     if (!state.coveringPaused) {
@@ -950,7 +997,7 @@ function loadCoveringPrefs(): void {
   try {
     const raw = localStorage.getItem(COVERING_PREFS_KEY);
     if (!raw) return;
-    const prefs = JSON.parse(raw) as { speed?: string; instantRun?: boolean; snapToGrid?: boolean };
+    const prefs = JSON.parse(raw) as { speed?: string; instantRun?: boolean; snapToGrid?: boolean; shape?: CoveringShape };
     if (inputSpeedPreset && prefs.speed && SPEED_PRESET_MS[prefs.speed] != null) {
       inputSpeedPreset.value = prefs.speed;
     }
@@ -959,6 +1006,9 @@ function loadCoveringPrefs(): void {
     }
     if (inputSnapToGrid && typeof prefs.snapToGrid === 'boolean') {
       inputSnapToGrid.checked = prefs.snapToGrid;
+    }
+    if (inputCoveringShape && ['squares', 'rectangles', 'circles'].includes(prefs.shape ?? '')) {
+      inputCoveringShape.value = prefs.shape!;
     }
   } catch {
     // ignore
@@ -970,6 +1020,7 @@ function saveCoveringPrefs(): void {
       speed: inputSpeedPreset?.value || 'normal',
       instantRun: inputInstantRun?.checked ?? false,
       snapToGrid: inputSnapToGrid?.checked ?? false,
+      shape: getCoveringShape(),
     };
     localStorage.setItem(COVERING_PREFS_KEY, JSON.stringify(prefs));
   } catch {
@@ -980,6 +1031,7 @@ loadCoveringPrefs();
 inputSpeedPreset?.addEventListener('change', saveCoveringPrefs);
 inputInstantRun?.addEventListener('change', saveCoveringPrefs);
 inputSnapToGrid?.addEventListener('change', saveCoveringPrefs);
+inputCoveringShape?.addEventListener('change', saveCoveringPrefs);
 
 canvasState.resize();
 draw();

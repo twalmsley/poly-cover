@@ -203,13 +203,14 @@
     </div>
   </div>
   <div id="footer">
-    <label>Min square size: <input type="number" id="min-size" min="1" max="200" value="4" /></label>
-    <label><input type="checkbox" id="snap-to-grid" title="Snap new vertices to grid (step = min square size)" /> Snap to grid</label>
-    <label>Max k: <input type="number" id="max-k" min="2" max="1024" value="128" title="Max k×k merge (tried by halving: k, k/2, k/4, …)" /></label>
-    <label>Min k: <input type="number" id="min-k" min="2" max="1024" value="2" title="Minimum k (halving stops at this)" /></label>
+    <label>Covering shape: <select id="covering-shape" title="Squares, Rectangles, or Circles."><option value="squares">Squares</option><option value="rectangles">Rectangles</option><option value="circles">Circles</option></select></label>
+    <label>Min cell size: <input type="number" id="min-size" min="1" max="200" value="4" title="Grid cell size (min square/rectangle side)" /></label>
+    <label><input type="checkbox" id="snap-to-grid" title="Snap new vertices to grid (step = min cell size)" /> Snap to grid</label>
+    <label>Max k: <input type="number" id="max-k" min="2" max="1024" value="128" title="Max merge dimension (k×k for squares; max w and h for rectangles)" /></label>
+    <label>Min k: <input type="number" id="min-k" min="2" max="1024" value="2" title="Minimum merge dimension" /></label>
     <label>Speed: <select id="speed-preset" title="Animation step delay"><option value="slow">Slow</option><option value="normal" selected>Normal</option><option value="fast">Fast</option></select></label>
     <label><input type="checkbox" id="instant-run" title="Run to completion without animation" /> Run without animation</label>
-    <span id="square-count">Squares: —  ·  Iterations: —</span>
+    <span id="square-count">Shapes: —  ·  Iterations: —</span>
     <span id="stats-area" title="Polygon union area, covered rectangle area, area per square (units²), coverage: % of polygon covered by squares">Polygon area: —  ·  Covered area: —  ·  Efficiency: —</span>
   </div>
   <div id="toast" aria-live="polite"></div>

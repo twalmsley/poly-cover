@@ -4,8 +4,8 @@
  */
 
 import * as martinez from 'martinez-polygon-clipping';
-import { rectInsideRegion, bbox } from './drawing.js';
-import type { Point, Polygon, Rectangle, Region, CoveringStep } from './types.js';
+import { rectInsideRegion, bbox, circleInsideRegion } from './drawing.js';
+import type { Point, Polygon, Rectangle, Region, CoveringStep, CoveringShape, Circle } from './types.js';
 
 const DEFAULT_MAX_K = 8;
 
@@ -40,6 +40,216 @@ function fillGrid(region: Polygon | Region, minSize: number): Square[] {
     }
   }
   return squares;
+}
+
+/** Normalize rect to { x, y, w, h }. */
+function rectWh(r: Rectangle): { x: number; y: number; w: number; h: number } {
+  return {
+    x: r.x,
+    y: r.y,
+    w: r.w ?? r.width ?? 0,
+    h: r.h ?? r.height ?? 0,
+  };
+}
+
+/** Two rectangles that share an edge and can be merged into one. */
+interface AdjacentMergePair {
+  i: number;
+  j: number;
+  merged: Rectangle;
+}
+
+/**
+ * Find two adjacent rectangles that can be merged (same width stacked vertically, or same height side by side).
+ * Merged rect must be fully inside one of the regions.
+ */
+function findAdjacentMergeablePair(rects: Rectangle[], regions: Region[]): AdjacentMergePair | null {
+  const n = rects.length;
+  for (let i = 0; i < n; i++) {
+    const a = rectWh(rects[i]);
+    for (let j = i + 1; j < n; j++) {
+      const b = rectWh(rects[j]);
+      let merged: Rectangle | null = null;
+      // Side by side: same y, same height, share vertical edge
+      if (a.y === b.y && a.h === b.h) {
+        if (a.x + a.w === b.x) merged = { x: a.x, y: a.y, w: a.w + b.w, h: a.h };
+        else if (b.x + b.w === a.x) merged = { x: b.x, y: b.y, w: a.w + b.w, h: a.h };
+      }
+      // Stacked: same x, same width, share horizontal edge
+      if (!merged && a.x === b.x && a.w === b.w) {
+        if (a.y + a.h === b.y) merged = { x: a.x, y: a.y, w: a.w, h: a.h + b.h };
+        else if (b.y + b.h === a.y) merged = { x: b.x, y: b.y, w: a.w, h: a.h + b.h };
+      }
+      if (merged && regions.some((reg) => rectInsideRegion(merged!.x, merged!.y, merged!.w, merged!.h, reg))) {
+        return { i, j, merged };
+      }
+    }
+  }
+  return null;
+}
+
+function replacePairWithMerged(rects: Rectangle[], i: number, j: number, merged: Rectangle): Rectangle[] {
+  const out = rects.filter((_, idx) => idx !== i && idx !== j);
+  out.push(merged);
+  return out;
+}
+
+/**
+ * Run squares covering only: grid fill + k×k merge. Yields steps for animation.
+ */
+function* runCoveringSquares(
+  regions: Region[],
+  minSize: number,
+  capK: number,
+  capMinK: number
+): Generator<CoveringStep> {
+  let squares: Square[] = [];
+  for (const reg of regions) {
+    squares = squares.concat(fillGrid(reg, minSize));
+  }
+
+  let iteration = 0;
+  yield { rectangles: squaresToRects(squares), remaining: [], iteration };
+
+  const squareSet = new Set(squares.map(squareKey));
+  const mergedKeys = new Set<string>();
+
+  while (true) {
+    let merge: MergeResult | null = null;
+    if (squares.length > 0) {
+      const last = squares[squares.length - 1];
+      for (const k of kHalvingRange(capK, capMinK)) {
+        if (hasBlock(squareSet, last.x, last.y, last.size, k)) {
+          merge = { x: last.x, y: last.y, size: last.size, k };
+          break;
+        }
+      }
+    }
+    if (!merge) {
+      const excludeKeys = new Set(mergedKeys);
+      if (squares.length > 0) excludeKeys.add(squareKey(squares[squares.length - 1]));
+      merge = findMerge(squareSet, squares, capK, capMinK, excludeKeys);
+    }
+    if (!merge) break;
+
+    const { x, y, size, k } = merge;
+    const newSize = size * k;
+    const toRemove: Square[] = [];
+    for (let di = 0; di < k; di++) {
+      for (let dj = 0; dj < k; dj++) {
+        toRemove.push({ x: x + di * size, y: y + dj * size, size });
+      }
+    }
+    for (const s of toRemove) {
+      const key = squareKey(s);
+      squareSet.delete(key);
+      mergedKeys.add(key);
+    }
+    squareSet.add(squareKey({ x, y, size: newSize }));
+
+    squares = squares.filter((s) => squareSet.has(squareKey(s)));
+    squares.push({ x, y, size: newSize });
+
+    iteration++;
+    yield { rectangles: squaresToRects(squares), remaining: [], iteration };
+  }
+
+  yield { rectangles: squaresToRects(squares), remaining: [], iteration };
+}
+
+/**
+ * Run rectangle covering: first run the squares algorithm, then merge adjacent squares/rects into larger rectangles.
+ */
+function* runCoveringRectangles(
+  regions: Region[],
+  minSize: number,
+  maxK: number,
+  minK: number
+): Generator<CoveringStep> {
+  const capK = Math.max(2, Math.min(1024, Math.floor(maxK)));
+  const capMinK = Math.max(2, Math.min(capK, Math.floor(minK)));
+
+  let lastStep: CoveringStep = { rectangles: [], remaining: [], iteration: 0 };
+  for (const step of runCoveringSquares(regions, minSize, capK, capMinK)) {
+    yield step;
+    lastStep = step;
+  }
+
+  let rects = [...lastStep.rectangles];
+  let iteration = lastStep.iteration;
+
+  while (true) {
+    const pair = findAdjacentMergeablePair(rects, regions);
+    if (!pair) break;
+    rects = replacePairWithMerged(rects, pair.i, pair.j, pair.merged);
+    iteration++;
+    yield { rectangles: rects, remaining: [], iteration };
+  }
+
+  yield { rectangles: rects, remaining: [], iteration };
+}
+
+/** Yields diameters from maxK down to minK by halving (maxK, maxK/2, maxK/4, ...). */
+function* diameterHalvingRange(maxK: number, minK: number): Generator<number> {
+  let d = Math.floor(maxK);
+  const min = Math.max(2, Math.floor(minK));
+  const seen = new Set<number>();
+  while (d >= min) {
+    if (!seen.has(d)) {
+      seen.add(d);
+      yield d;
+    }
+    const next = Math.floor(d / 2);
+    if (next >= d) break;
+    d = next;
+  }
+}
+
+function circleOverlapsExisting(cx: number, cy: number, r: number, circles: Circle[]): boolean {
+  for (const c of circles) {
+    const dist = Math.hypot(cx - c.cx, cy - c.cy);
+    if (dist < r + c.r) return true;
+  }
+  return false;
+}
+
+/**
+ * Run circle covering: place circles of diameter maxK, then fill gaps with maxK/2, maxK/4, ... down to minK.
+ * Circles are placed on a grid (step = diameter) so same-size circles don't overlap; new circles must not overlap any existing.
+ */
+function* runCoveringCircles(regions: Region[], _minSize: number, maxK: number, minK: number): Generator<CoveringStep> {
+  const circles: Circle[] = [];
+  const capK = Math.max(2, Math.min(1024, Math.floor(maxK)));
+  const capMinK = Math.max(2, Math.min(capK, Math.floor(minK)));
+  let iteration = 0;
+
+  yield { rectangles: [], circles: [], remaining: [], iteration };
+
+  for (const diameter of diameterHalvingRange(capK, capMinK)) {
+    const r = diameter / 2;
+    let added = 0;
+    for (const reg of regions) {
+      const bb = bbox(reg);
+      for (let i = 0; ; i++) {
+        const cx = bb.x + r + i * diameter;
+        if (cx - r > bb.x + bb.w) break;
+        for (let j = 0; ; j++) {
+          const cy = bb.y + r + j * diameter;
+          if (cy - r > bb.y + bb.h) break;
+          if (!circleInsideRegion(cx, cy, r, reg)) continue;
+          if (circleOverlapsExisting(cx, cy, r, circles)) continue;
+          circles.push({ cx, cy, r });
+          added++;
+        }
+      }
+    }
+    if (added > 0) {
+      iteration++;
+      yield { rectangles: [], circles: [...circles], remaining: [], iteration };
+    }
+  }
+
+  yield { rectangles: [], circles, remaining: [], iteration };
 }
 
 /**
@@ -113,13 +323,16 @@ export interface RunCoveringOptions {
   minSize?: number;
   maxK?: number;
   minK?: number;
+  /** Shape strategy: 'squares' (k×k merge only) or 'rectangles' (any w×h merge). Default 'squares'. */
+  shape?: CoveringShape;
 }
 
 /**
  * Run grid-fill + merge covering: yields { rectangles, remaining, iteration } for animation.
+ * When shape is 'rectangles', merges any w×h blocks; when 'squares', merges only k×k blocks.
  */
 export function* runCovering(polygons: Polygon[], options: RunCoveringOptions = {}): Generator<CoveringStep> {
-  const { minSize = 8, maxK = DEFAULT_MAX_K, minK = 2 } = options;
+  const { minSize = 8, maxK = DEFAULT_MAX_K, minK = 2, shape = 'squares' } = options;
   const capK = Math.max(2, Math.min(1024, Math.floor(maxK)));
   const capMinK = Math.max(2, Math.min(capK, Math.floor(minK)));
   const regions = unionPolygons(polygons);
@@ -128,58 +341,16 @@ export function* runCovering(polygons: Polygon[], options: RunCoveringOptions = 
     return;
   }
 
-  let squares: Square[] = [];
-  for (const reg of regions) {
-    squares = squares.concat(fillGrid(reg, minSize));
+  if (shape === 'rectangles') {
+    yield* runCoveringRectangles(regions, minSize, capK, capMinK);
+    return;
+  }
+  if (shape === 'circles') {
+    yield* runCoveringCircles(regions, minSize, capK, capMinK);
+    return;
   }
 
-  let iteration = 0;
-  yield { rectangles: squaresToRects(squares), remaining: [], iteration };
-
-  const squareSet = new Set(squares.map(squareKey));
-  const mergedKeys = new Set<string>();
-
-  while (true) {
-    let merge: MergeResult | null = null;
-    if (squares.length > 0) {
-      const last = squares[squares.length - 1];
-      for (const k of kHalvingRange(capK, capMinK)) {
-        if (hasBlock(squareSet, last.x, last.y, last.size, k)) {
-          merge = { x: last.x, y: last.y, size: last.size, k };
-          break;
-        }
-      }
-    }
-    if (!merge) {
-      const excludeKeys = new Set(mergedKeys);
-      if (squares.length > 0) excludeKeys.add(squareKey(squares[squares.length - 1]));
-      merge = findMerge(squareSet, squares, capK, capMinK, excludeKeys);
-    }
-    if (!merge) break;
-
-    const { x, y, size, k } = merge;
-    const newSize = size * k;
-    const toRemove: Square[] = [];
-    for (let di = 0; di < k; di++) {
-      for (let dj = 0; dj < k; dj++) {
-        toRemove.push({ x: x + di * size, y: y + dj * size, size });
-      }
-    }
-    for (const s of toRemove) {
-      const key = squareKey(s);
-      squareSet.delete(key);
-      mergedKeys.add(key);
-    }
-    squareSet.add(squareKey({ x, y, size: newSize }));
-
-    squares = squares.filter(s => squareSet.has(squareKey(s)));
-    squares.push({ x, y, size: newSize });
-
-    iteration++;
-    yield { rectangles: squaresToRects(squares), remaining: [], iteration };
-  }
-
-  yield { rectangles: squaresToRects(squares), remaining: [], iteration };
+  yield* runCoveringSquares(regions, minSize, capK, capMinK);
 }
 
 /** Polygon as array of {x,y} -> GeoJSON polygon coords (closed ring). */
