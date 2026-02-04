@@ -41,6 +41,47 @@
       border-radius: 4px;
     }
     #toolbar input[type="checkbox"] { accent-color: #e94560; }
+    #toolbar .dropdown { position: relative; }
+    #toolbar .dropdown-content {
+      display: none;
+      position: absolute;
+      top: 100%;
+      left: 0;
+      margin-top: 4px;
+      background: #16213e;
+      border: 1px solid #444;
+      border-radius: 4px;
+      min-width: 160px;
+      z-index: 20;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    }
+    #toolbar .dropdown.open .dropdown-content { display: block; }
+    #toolbar .dropdown-content button {
+      display: block;
+      width: 100%;
+      text-align: left;
+      border: none;
+      border-radius: 0;
+      background: transparent;
+    }
+    #toolbar .dropdown-content button:hover { background: #0f3460; }
+    #toast {
+      position: fixed;
+      bottom: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 8px 16px;
+      background: #1a1a2e;
+      border: 1px solid #444;
+      border-radius: 4px;
+      color: #eee;
+      font-size: 14px;
+      z-index: 100;
+      opacity: 0;
+      transition: opacity 0.2s;
+      pointer-events: none;
+    }
+    #toast.show { opacity: 1; }
     #canvas-wrap {
       position: fixed;
       top: 48px;
@@ -73,8 +114,22 @@
     <label>Max k: <input type="number" id="max-k" min="2" max="1024" value="128" title="Max k×k merge (tried by halving: k, k/2, k/4, …)" /></label>
     <label>Min k: <input type="number" id="min-k" min="2" max="1024" value="2" title="Minimum k (halving stops at this)" /></label>
     <span id="square-count">Squares: —  ·  Iterations: —</span>
+    <div class="dropdown" id="export-dropdown">
+      <button type="button" id="btn-export">Export ▾</button>
+      <div class="dropdown-content">
+        <button type="button" id="export-polygons-json">Polygons (JSON)</button>
+        <button type="button" id="export-rectangles-json">Rectangles (JSON)</button>
+        <button type="button" id="export-rectangles-code">Rectangles (code)</button>
+        <button type="button" id="export-rectangles-svg">Rectangles (SVG)</button>
+        <button type="button" id="export-all-json">Export all (JSON)</button>
+      </div>
+    </div>
+    <button type="button" id="btn-import">Import</button>
+    <button type="button" id="btn-import-paste" title="Paste JSON from clipboard">Paste</button>
+    <input type="file" id="import-file" accept=".json,application/json" style="display: none" />
     <button type="button" id="btn-clear">Clear all</button>
   </div>
+  <div id="toast" aria-live="polite"></div>
   <div id="canvas-wrap">
     <canvas id="c"></canvas>
   </div>
