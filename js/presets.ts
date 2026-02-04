@@ -4,8 +4,9 @@
  * Coordinates are chosen to be visible at default view and work with min square size ~4.
  */
 
-/** @type {Array<{ id: string, name: string, polygons: Array<Array<{x: number, y: number}>> }>} */
-export const PRESETS = [
+import type { Preset } from './types.js';
+
+export const PRESETS: Preset[] = [
   {
     id: 'rectangle',
     name: 'Rectangle',
@@ -42,7 +43,7 @@ export const PRESETS = [
         const outerR = 45;
         const innerR = 18;
         const points = 5;
-        const pts = [];
+        const pts: { x: number; y: number }[] = [];
         for (let i = 0; i < points * 2; i++) {
           const r = i % 2 === 0 ? outerR : innerR;
           const a = (Math.PI * 2 * i) / (points * 2) - Math.PI / 2;

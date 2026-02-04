@@ -14,29 +14,30 @@ import {
   importFromJSON,
 } from './io.js';
 import { PRESETS } from './presets.js';
+import type { AppState, Point, Polygon, Rectangle, Bounds, ImportResult } from './types.js';
 
-const canvas = document.getElementById('c');
-const wrap = document.getElementById('canvas-wrap');
-const btnDraw = document.getElementById('btn-draw');
-const btnClose = document.getElementById('btn-close');
-const btnNew = document.getElementById('btn-new');
-const btnRun = document.getElementById('btn-run');
-const btnClear = document.getElementById('btn-clear');
-const btnResetZoom = document.getElementById('btn-reset-zoom');
-const btnUndo = document.getElementById('btn-undo');
-const btnRedo = document.getElementById('btn-redo');
-const inputMinSize = document.getElementById('min-size');
-const inputSnapToGrid = document.getElementById('snap-to-grid');
-const inputMaxK = document.getElementById('max-k');
-const inputMinK = document.getElementById('min-k');
-const inputSpeedPreset = document.getElementById('speed-preset');
-const inputInstantRun = document.getElementById('instant-run');
-const squareCountEl = document.getElementById('square-count');
-const statsAreaEl = document.getElementById('stats-area');
+const canvas = document.getElementById('c') as HTMLCanvasElement;
+const wrap = document.getElementById('canvas-wrap') as HTMLElement;
+const btnDraw = document.getElementById('btn-draw') as HTMLButtonElement | null;
+const btnClose = document.getElementById('btn-close') as HTMLButtonElement | null;
+const btnNew = document.getElementById('btn-new') as HTMLButtonElement | null;
+const btnRun = document.getElementById('btn-run') as HTMLButtonElement | null;
+const btnClear = document.getElementById('btn-clear') as HTMLButtonElement | null;
+const btnResetZoom = document.getElementById('btn-reset-zoom') as HTMLButtonElement | null;
+const btnUndo = document.getElementById('btn-undo') as HTMLButtonElement | null;
+const btnRedo = document.getElementById('btn-redo') as HTMLButtonElement | null;
+const inputMinSize = document.getElementById('min-size') as HTMLInputElement | null;
+const inputSnapToGrid = document.getElementById('snap-to-grid') as HTMLInputElement | null;
+const inputMaxK = document.getElementById('max-k') as HTMLInputElement | null;
+const inputMinK = document.getElementById('min-k') as HTMLInputElement | null;
+const inputSpeedPreset = document.getElementById('speed-preset') as HTMLSelectElement | null;
+const inputInstantRun = document.getElementById('instant-run') as HTMLInputElement | null;
+const squareCountEl = document.getElementById('square-count') as HTMLElement | null;
+const statsAreaEl = document.getElementById('stats-area') as HTMLElement | null;
 
 const canvasState = makeCanvasState(canvas);
 
-const state = {
+const state: AppState = {
   polygons: [],
   currentPolygon: null,
   rectangles: [],
@@ -52,15 +53,15 @@ const state = {
   redoStack: [],
 };
 
-let coveringTimeoutId = null;
-let coveringRafId = null;
-let coveringStep = null;
+let coveringTimeoutId: ReturnType<typeof setTimeout> | null = null;
+let coveringRafId: number | null = null;
+let coveringStep: (() => void) | null = null;
 
-const SPEED_PRESET_MS = { slow: 200, normal: 80, fast: 20 };
+const SPEED_PRESET_MS: Record<string, number> = { slow: 200, normal: 80, fast: 20 };
 const STEP_DELAY_MIN = 5;
 const STEP_DELAY_MAX = 500;
 
-function getStepDelayMs() {
+function getStepDelayMs(): number {
   const preset = inputSpeedPreset?.value || 'normal';
   const ms = SPEED_PRESET_MS[preset] ?? 80;
   return Math.max(STEP_DELAY_MIN, Math.min(STEP_DELAY_MAX, ms));
@@ -68,18 +69,18 @@ function getStepDelayMs() {
 
 const CLOSE_HIT_THRESHOLD = 12;
 
-function showToast(message) {
+function showToast(message: string): void {
   const toast = document.getElementById('toast');
   if (!toast) return;
   toast.textContent = message;
   toast.classList.add('show');
-  clearTimeout(showToast._tid);
-  showToast._tid = setTimeout(() => {
+  clearTimeout((showToast as unknown as { _tid?: ReturnType<typeof setTimeout> })._tid);
+  (showToast as unknown as { _tid?: ReturnType<typeof setTimeout> })._tid = setTimeout(() => {
     toast.classList.remove('show');
   }, 3000);
 }
 
-function copyToClipboard(text) {
+function copyToClipboard(text: string): Promise<void> {
   if (navigator.clipboard && window.isSecureContext) {
     return navigator.clipboard.writeText(text);
   }
@@ -97,7 +98,7 @@ function copyToClipboard(text) {
   }
 }
 
-function downloadFile(filename, content, mimeType) {
+function downloadFile(filename: string, content: string, mimeType?: string): void {
   const blob = new Blob([content], { type: mimeType || 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
@@ -106,13 +107,7 @@ function downloadFile(filename, content, mimeType) {
   URL.revokeObjectURL(a.href);
 }
 
-/**
- * Scale preset polygons and translate so their center is at the canvas view center.
- * @param {Array<Array<{x: number, y: number}>>} polygons
- * @param {number} [scaleFactor=3]
- * @returns {Array<Array<{x: number, y: number}>>}
- */
-function transformPresetToView(polygons, scaleFactor = 3) {
+function transformPresetToView(polygons: Polygon[], scaleFactor = 3): Polygon[] {
   if (!polygons?.length) return polygons;
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   for (const ring of polygons) {
@@ -135,7 +130,7 @@ function transformPresetToView(polygons, scaleFactor = 3) {
   );
 }
 
-function applyImport(result, toastMessage = null) {
+function applyImport(result: ImportResult, toastMessage: string | null = null): void {
   if (result.polygons != null) {
     state.polygons = result.polygons;
     state.currentPolygon = null;
@@ -166,18 +161,18 @@ function applyImport(result, toastMessage = null) {
   } else {
     const np = result.polygons?.length ?? 0;
     const nr = result.rectangles?.length ?? 0;
-    const parts = [];
+    const parts: string[] = [];
     if (np > 0) parts.push(`${np} polygon${np === 1 ? '' : 's'}`);
     if (nr > 0) parts.push(`${nr} rectangle${nr === 1 ? '' : 's'}`);
     showToast(parts.length ? `Imported ${parts.join(', ')}` : 'Imported (empty)');
   }
 }
 
-function getCoveredArea(rectangles) {
-  return (rectangles || []).reduce((sum, r) => sum + r.w * r.h, 0);
+function getCoveredArea(rectangles: Rectangle[]): number {
+  return (rectangles || []).reduce((sum, r) => sum + (r.w ?? r.width ?? 0) * (r.h ?? r.height ?? 0), 0);
 }
 
-function getPolygonListForArea() {
+function getPolygonListForArea(): Polygon[] {
   let closed = state.polygons.length > 0 ? [...state.polygons] : [];
   if (state.currentPolygon && state.currentPolygon.length >= 3) {
     closed = closed.concat([[...state.currentPolygon]]);
@@ -185,11 +180,7 @@ function getPolygonListForArea() {
   return closed;
 }
 
-/**
- * World-space axis-aligned bounding box of all content (polygons + rectangles).
- * @returns {{ minX: number, minY: number, maxX: number, maxY: number } | null}
- */
-function getWorldBounds() {
+function getWorldBounds(): Bounds | null {
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   let hasAny = false;
   for (const points of state.polygons) {
@@ -223,7 +214,7 @@ function getWorldBounds() {
   return { minX, minY, maxX, maxY };
 }
 
-function updateSquareCount() {
+function updateSquareCount(): void {
   if (squareCountEl) {
     const sq = state.rectangles.length > 0 ? `Squares: ${state.rectangles.length}` : 'Squares: —';
     const iter = state.coveringRunning || state.rectangles.length > 0
@@ -233,7 +224,7 @@ function updateSquareCount() {
   }
 }
 
-function updateStats() {
+function updateStats(): void {
   if (!statsAreaEl) return;
   const polygonList = getPolygonListForArea();
   const polygonArea = polygonList.length > 0 ? getUnionArea(polygonList) : null;
@@ -254,7 +245,7 @@ function updateStats() {
   statsAreaEl.textContent = `Polygon area: ${paStr}  ·  Covered area: ${caStr}  ·  Efficiency: ${effStr}  ·  ${coverageStr}`;
 }
 
-function draw() {
+function draw(): void {
   updateSquareCount();
   updateStats();
   const ctx = canvasState.ctx;
@@ -298,11 +289,11 @@ function draw() {
   ctx.restore();
 }
 
-function screenToWorld(clientX, clientY) {
+function screenToWorld(clientX: number, clientY: number): Point {
   return canvasState.screenToWorld(clientX, clientY);
 }
 
-function snapToGrid(x, y, gridSize) {
+function snapToGrid(x: number, y: number, gridSize: number): Point {
   const step = Math.max(1, gridSize);
   return {
     x: Math.round(x / step) * step,
@@ -310,9 +301,9 @@ function snapToGrid(x, y, gridSize) {
   };
 }
 
-function addPoint(wx, wy) {
+function addPoint(wx: number, wy: number): void {
   if (inputSnapToGrid?.checked) {
-    const minSize = Math.max(1, Math.min(500, parseInt(inputMinSize.value, 10) || 8));
+    const minSize = Math.max(1, Math.min(500, parseInt(inputMinSize?.value ?? '8', 10) || 8));
     const snapped = snapToGrid(wx, wy, minSize);
     wx = snapped.x;
     wy = snapped.y;
@@ -325,7 +316,7 @@ function addPoint(wx, wy) {
   updateUndoRedoButtons();
 }
 
-function closePolygon() {
+function closePolygon(): void {
   if (state.currentPolygon && state.currentPolygon.length >= 3) {
     if (state.editMode) {
       state.polygons.push([...state.currentPolygon]);
@@ -343,7 +334,7 @@ function closePolygon() {
   }
 }
 
-function newPolygon() {
+function newPolygon(): void {
   if (state.currentPolygon && state.currentPolygon.length >= 3) {
     state.polygons.push([...state.currentPolygon]);
   }
@@ -357,7 +348,7 @@ function newPolygon() {
   updateDeleteEditButtons();
 }
 
-function clearAll() {
+function clearAll(): void {
   if (coveringTimeoutId != null) {
     clearTimeout(coveringTimeoutId);
     coveringTimeoutId = null;
@@ -384,7 +375,7 @@ function clearAll() {
   updateDeleteEditButtons();
 }
 
-function deleteSelectedPolygon() {
+function deleteSelectedPolygon(): void {
   if (state.coveringRunning || state.selectedPolygonIndex == null) return;
   const index = state.selectedPolygonIndex;
   const points = state.polygons[index];
@@ -397,7 +388,7 @@ function deleteSelectedPolygon() {
   updateDeleteEditButtons();
 }
 
-function startEditPolygon() {
+function startEditPolygon(): void {
   if (state.coveringRunning || state.selectedPolygonIndex == null) return;
   const index = state.selectedPolygonIndex;
   state.currentPolygon = [...state.polygons[index].map((p) => ({ x: p.x, y: p.y }))];
@@ -410,31 +401,31 @@ function startEditPolygon() {
   updateDeleteEditButtons();
 }
 
-function updateUndoRedoButtons() {
+function updateUndoRedoButtons(): void {
   if (btnUndo) btnUndo.disabled = state.undoStack.length === 0 || state.coveringRunning;
   if (btnRedo) btnRedo.disabled = state.redoStack.length === 0 || state.coveringRunning;
 }
 
-function updateDeleteEditButtons() {
-  const btnDelete = document.getElementById('btn-delete');
-  const btnEdit = document.getElementById('btn-edit');
+function updateDeleteEditButtons(): void {
+  const btnDelete = document.getElementById('btn-delete') as HTMLButtonElement | null;
+  const btnEdit = document.getElementById('btn-edit') as HTMLButtonElement | null;
   const disabled = state.coveringRunning || state.selectedPolygonIndex == null;
   if (btnDelete) btnDelete.disabled = disabled;
   if (btnEdit) btnEdit.disabled = disabled;
 }
 
-function undo() {
+function undo(): void {
   if (state.undoStack.length === 0 || state.coveringRunning) return;
-  const entry = state.undoStack.pop();
+  const entry = state.undoStack.pop()!;
   state.redoStack.push(entry);
   if (entry.type === 'add_point') {
     if (state.currentPolygon && state.currentPolygon.length > 0) {
       state.currentPolygon.pop();
-      if (state.currentPolygon.length === 0) state.currentPolygon = [];
+      if ((state.currentPolygon?.length ?? 0) === 0) state.currentPolygon = [];
     }
   } else if (entry.type === 'close_polygon') {
     if (state.polygons.length > 0) {
-      state.currentPolygon = [...state.polygons.pop()];
+      state.currentPolygon = [...state.polygons.pop()!];
     }
   } else if (entry.type === 'delete_polygon') {
     state.polygons.splice(entry.index, 0, entry.points);
@@ -445,9 +436,9 @@ function undo() {
   updateDeleteEditButtons();
 }
 
-function redo() {
+function redo(): void {
   if (state.redoStack.length === 0 || state.coveringRunning) return;
-  const entry = state.redoStack.pop();
+  const entry = state.redoStack.pop()!;
   state.undoStack.push(entry);
   if (entry.type === 'add_point') {
     if (!state.currentPolygon) state.currentPolygon = [];
@@ -472,7 +463,7 @@ const RUN_ICONS = {
   computing: '<svg viewBox="0 0 24 24" class="spin"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46A7.93 7.93 0 0020 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74A7.93 7.93 0 004 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/></svg>',
 };
 
-function updateRunButton() {
+function updateRunButton(): void {
   if (!btnRun) return;
   const iconSlot = btnRun.querySelector('svg');
   const instant = inputInstantRun?.checked ?? false;
@@ -501,7 +492,7 @@ function updateRunButton() {
 
 const INSTANT_STEPS_PER_FRAME = 100;
 
-function startCovering() {
+function startCovering(): void {
   let closed = state.polygons.length > 0 ? [...state.polygons] : [];
   if (state.currentPolygon && state.currentPolygon.length >= 3) {
     closed = closed.concat([[...state.currentPolygon]]);
@@ -517,7 +508,7 @@ function startCovering() {
   coveringRafId = null;
   coveringStep = null;
 
-  const minSize = Math.max(1, Math.min(500, parseInt(inputMinSize.value, 10) || 8));
+  const minSize = Math.max(1, Math.min(500, parseInt(inputMinSize?.value ?? '8', 10) || 8));
   const maxK = inputMaxK ? Math.max(2, Math.min(1024, parseInt(inputMaxK.value, 10) || 8)) : 8;
   const minK = inputMinK ? Math.max(2, Math.min(1024, parseInt(inputMinK.value, 10) || 2)) : 2;
 
@@ -525,7 +516,7 @@ function startCovering() {
   const instant = inputInstantRun?.checked ?? false;
   const delay = getStepDelayMs();
 
-  function finish() {
+  function finish(): void {
     state.coveringRunning = false;
     state.coveringPaused = false;
     coveringTimeoutId = null;
@@ -538,7 +529,7 @@ function startCovering() {
   }
 
   if (instant) {
-    function runInstant() {
+    function runInstant(): void {
       if (!state.coveringRunning) {
         finish();
         return;
@@ -547,7 +538,6 @@ function startCovering() {
         const { value, done } = gen.next();
         if (done || !state.coveringRunning) {
           if (!done) break;
-          // When done, generator returns undefined; last yielded value was already applied
           finish();
           return;
         }
@@ -562,7 +552,7 @@ function startCovering() {
     return;
   }
 
-  function step() {
+  function step(): void {
     if (state.coveringPaused) return;
     const { value, done } = gen.next();
     if (done || !state.coveringRunning) {
@@ -582,9 +572,9 @@ function startCovering() {
   step();
 }
 
-function pauseCovering() {
+function pauseCovering(): void {
   if (!state.coveringRunning || state.coveringPaused) return;
-  if (inputInstantRun?.checked) return; // instant run is not pausable
+  if (inputInstantRun?.checked) return;
   if (coveringTimeoutId != null) {
     clearTimeout(coveringTimeoutId);
     coveringTimeoutId = null;
@@ -593,25 +583,25 @@ function pauseCovering() {
   updateRunButton();
 }
 
-function resumeCovering() {
+function resumeCovering(): void {
   if (!state.coveringRunning || !state.coveringPaused) return;
   state.coveringPaused = false;
   updateRunButton();
   if (coveringStep) coveringStep();
 }
 
-wrap.addEventListener('wheel', (e) => {
+wrap.addEventListener('wheel', (e: WheelEvent) => {
   if (canvasState.handleWheel(e)) e.preventDefault();
 }, { passive: false });
 
-function hitTestPolygons(wx, wy) {
+function hitTestPolygons(wx: number, wy: number): number | null {
   for (let i = state.polygons.length - 1; i >= 0; i--) {
     if (pointInPolygon(wx, wy, state.polygons[i])) return i;
   }
   return null;
 }
 
-wrap.addEventListener('mousedown', (e) => {
+wrap.addEventListener('mousedown', (e: MouseEvent) => {
   if (e.button !== 0) return;
   const wx = screenToWorld(e.clientX, e.clientY);
   if (state.spaceDown) {
@@ -635,7 +625,7 @@ wrap.addEventListener('mousedown', (e) => {
   canvasState.handlePointerDown(e.clientX, e.clientY);
 });
 
-wrap.addEventListener('mousemove', (e) => {
+wrap.addEventListener('mousemove', (e: MouseEvent) => {
   if (state.spaceDown) {
     canvasState.handlePointerMove(e.clientX, e.clientY);
     draw();
@@ -645,7 +635,7 @@ wrap.addEventListener('mousemove', (e) => {
   draw();
 });
 
-wrap.addEventListener('mouseup', (e) => {
+wrap.addEventListener('mouseup', (e: MouseEvent) => {
   if (e.button !== 0) return;
   canvasState.handlePointerUp();
 });
@@ -654,7 +644,7 @@ wrap.addEventListener('mouseleave', () => {
   canvasState.handlePointerUp();
 });
 
-wrap.addEventListener('dblclick', (e) => {
+wrap.addEventListener('dblclick', (e: MouseEvent) => {
   if (e.button !== 0) return;
   if (state.currentPolygon && state.currentPolygon.length >= 3) {
     e.preventDefault();
@@ -667,12 +657,12 @@ wrap.addEventListener('dblclick', (e) => {
   }
 });
 
-function isFocusInInput() {
+function isFocusInInput(): boolean {
   const tag = document.activeElement?.tagName?.toLowerCase();
   return tag === 'input' || tag === 'textarea' || tag === 'select';
 }
 
-document.addEventListener('keydown', (e) => {
+document.addEventListener('keydown', (e: KeyboardEvent) => {
   if (e.code === 'Space') {
     state.spaceDown = true;
     wrap.classList.add('pan');
@@ -691,10 +681,10 @@ document.addEventListener('keydown', (e) => {
   if (e.code === 'Escape') {
     if (helpOpen) {
       e.preventDefault();
-      helpPanel.classList.remove('open');
+      helpPanel!.classList.remove('open');
       return;
     }
-    if (state.drawMode && state.currentPolygon?.length > 0) {
+    if (state.drawMode && (state.currentPolygon?.length ?? 0) > 0) {
       e.preventDefault();
       state.currentPolygon = [];
       state.drawMode = false;
@@ -739,7 +729,7 @@ document.addEventListener('keydown', (e) => {
     const lastUndo = state.undoStack[state.undoStack.length - 1];
     if (
       state.drawMode &&
-      state.currentPolygon?.length > 0 &&
+      (state.currentPolygon?.length ?? 0) > 0 &&
       lastUndo?.type === 'add_point'
     ) {
       e.preventDefault();
@@ -763,7 +753,7 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
-document.addEventListener('keyup', (e) => {
+document.addEventListener('keyup', (e: KeyboardEvent) => {
   if (e.code === 'Space') {
     state.spaceDown = false;
     wrap.classList.remove('pan');
@@ -771,22 +761,21 @@ document.addEventListener('keyup', (e) => {
   }
 });
 
-btnDraw.addEventListener('click', () => {
+btnDraw?.addEventListener('click', () => {
   state.drawMode = !state.drawMode;
   btnDraw.classList.toggle('active', state.drawMode);
   updateUndoRedoButtons();
 });
+btnClose?.addEventListener('click', closePolygon);
+btnUndo?.addEventListener('click', undo);
+btnRedo?.addEventListener('click', redo);
+btnNew?.addEventListener('click', newPolygon);
+const btnDelete = document.getElementById('btn-delete') as HTMLButtonElement | null;
+const btnEdit = document.getElementById('btn-edit') as HTMLButtonElement | null;
+btnDelete?.addEventListener('click', deleteSelectedPolygon);
+btnEdit?.addEventListener('click', startEditPolygon);
 
-btnClose.addEventListener('click', closePolygon);
-btnUndo.addEventListener('click', undo);
-btnRedo.addEventListener('click', redo);
-btnNew.addEventListener('click', newPolygon);
-const btnDelete = document.getElementById('btn-delete');
-const btnEdit = document.getElementById('btn-edit');
-if (btnDelete) btnDelete.addEventListener('click', deleteSelectedPolygon);
-if (btnEdit) btnEdit.addEventListener('click', startEditPolygon);
-
-btnRun.addEventListener('click', () => {
+btnRun?.addEventListener('click', () => {
   if (!state.coveringRunning) {
     startCovering();
   } else if (state.coveringPaused) {
@@ -796,15 +785,14 @@ btnRun.addEventListener('click', () => {
   }
 });
 
-btnClear.addEventListener('click', clearAll);
+btnClear?.addEventListener('click', clearAll);
 
-function resetZoomView() {
+function resetZoomView(): void {
   const bounds = getWorldBounds();
-  const wrap = document.getElementById('canvas-wrap');
-  // Wrap is sized between header and footer, so its rect is the visible canvas area.
-  let viewport;
-  if (wrap) {
-    const rect = wrap.getBoundingClientRect();
+  const wrapEl = document.getElementById('canvas-wrap');
+  let viewport: { width: number; height: number; centerX: number; centerY: number } | undefined;
+  if (wrapEl) {
+    const rect = wrapEl.getBoundingClientRect();
     viewport = {
       width: rect.width,
       height: rect.height,
@@ -816,20 +804,18 @@ function resetZoomView() {
   draw();
 }
 
-if (btnResetZoom) btnResetZoom.addEventListener('click', resetZoomView);
+btnResetZoom?.addEventListener('click', resetZoomView);
 
-// Export dropdown
 const exportDropdown = document.getElementById('export-dropdown');
 const btnExport = document.getElementById('btn-export');
 if (btnExport && exportDropdown) {
-  btnExport.addEventListener('click', (e) => {
+  btnExport.addEventListener('click', (e: Event) => {
     e.stopPropagation();
     exportDropdown.classList.toggle('open');
   });
   document.addEventListener('click', () => exportDropdown?.classList.remove('open'));
 }
 
-// Samples dropdown
 const samplesDropdown = document.getElementById('samples-dropdown');
 const btnSamples = document.getElementById('btn-samples');
 const samplesMenu = document.getElementById('samples-menu');
@@ -841,14 +827,15 @@ if (btnSamples && samplesDropdown && samplesMenu) {
     btn.dataset.presetId = preset.id;
     samplesMenu.appendChild(btn);
   }
-  btnSamples.addEventListener('click', (e) => {
+  btnSamples.addEventListener('click', (e: Event) => {
     e.stopPropagation();
     samplesDropdown.classList.toggle('open');
   });
-  samplesMenu.addEventListener('click', (e) => {
-    const btn = e.target.closest('button[data-preset-id]');
+  samplesMenu.addEventListener('click', (e: Event) => {
+    const target = e.target as HTMLElement;
+    const btn = target.closest('button[data-preset-id]');
     if (!btn) return;
-    const preset = PRESETS.find((p) => p.id === btn.dataset.presetId);
+    const preset = PRESETS.find((p) => p.id === (btn as HTMLButtonElement).dataset.presetId);
     if (preset) {
       const polygons = transformPresetToView(preset.polygons);
       applyImport({ polygons, rectangles: [] }, `Loaded: ${preset.name}`);
@@ -861,14 +848,15 @@ if (btnSamples && samplesDropdown && samplesMenu) {
 const btnHelp = document.getElementById('btn-help');
 const helpPanelEl = document.getElementById('help-panel');
 if (btnHelp && helpPanelEl) {
-  btnHelp.addEventListener('click', (e) => {
+  btnHelp.addEventListener('click', (e: Event) => {
     e.stopPropagation();
     helpPanelEl.classList.toggle('open');
   });
-  helpPanelEl.addEventListener('click', (e) => e.stopPropagation());
+  helpPanelEl.addEventListener('click', (e: Event) => e.stopPropagation());
   document.addEventListener('click', () => helpPanelEl?.classList.remove('open'));
 }
-function doExport(getContent, filename, mimeType, description) {
+
+function doExport(getContent: () => string, filename: string, mimeType: string, description: string): void {
   const content = getContent();
   copyToClipboard(content).then(
     () => showToast(description ? `Copied ${description}` : 'Copied to clipboard'),
@@ -919,21 +907,21 @@ document.getElementById('export-all-json')?.addEventListener('click', () => {
   );
 });
 
-// Import
-const importFileInput = document.getElementById('import-file');
+const importFileInput = document.getElementById('import-file') as HTMLInputElement | null;
 document.getElementById('btn-import')?.addEventListener('click', () => importFileInput?.click());
-importFileInput?.addEventListener('change', (e) => {
-  const file = e.target.files?.[0];
+importFileInput?.addEventListener('change', (e: Event) => {
+  const target = e.target as HTMLInputElement;
+  const file = target.files?.[0];
   if (!file) return;
   const reader = new FileReader();
   reader.onload = () => {
     try {
-      const result = importFromJSON(reader.result);
+      const result = importFromJSON(reader.result as string);
       applyImport(result);
     } catch (err) {
       showToast('Import failed: ' + (err instanceof Error ? err.message : String(err)));
     }
-    e.target.value = '';
+    target.value = '';
   };
   reader.readAsText(file);
 });
@@ -957,13 +945,12 @@ window.addEventListener('resize', () => {
   draw();
 });
 
-// Persist speed and instant-run preference
 const COVERING_PREFS_KEY = 'poly-covering-prefs';
-function loadCoveringPrefs() {
+function loadCoveringPrefs(): void {
   try {
     const raw = localStorage.getItem(COVERING_PREFS_KEY);
     if (!raw) return;
-    const prefs = JSON.parse(raw);
+    const prefs = JSON.parse(raw) as { speed?: string; instantRun?: boolean; snapToGrid?: boolean };
     if (inputSpeedPreset && prefs.speed && SPEED_PRESET_MS[prefs.speed] != null) {
       inputSpeedPreset.value = prefs.speed;
     }
@@ -973,9 +960,11 @@ function loadCoveringPrefs() {
     if (inputSnapToGrid && typeof prefs.snapToGrid === 'boolean') {
       inputSnapToGrid.checked = prefs.snapToGrid;
     }
-  } catch (_) {}
+  } catch {
+    // ignore
+  }
 }
-function saveCoveringPrefs() {
+function saveCoveringPrefs(): void {
   try {
     const prefs = {
       speed: inputSpeedPreset?.value || 'normal',
@@ -983,7 +972,9 @@ function saveCoveringPrefs() {
       snapToGrid: inputSnapToGrid?.checked ?? false,
     };
     localStorage.setItem(COVERING_PREFS_KEY, JSON.stringify(prefs));
-  } catch (_) {}
+  } catch {
+    // ignore
+  }
 }
 loadCoveringPrefs();
 inputSpeedPreset?.addEventListener('change', saveCoveringPrefs);
