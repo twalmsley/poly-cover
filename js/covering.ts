@@ -5,24 +5,31 @@
 
 import * as martinez from 'martinez-polygon-clipping';
 import { rectInsideRegion, bbox } from './drawing.js';
+import type { Point, Polygon, Rectangle, Region, CoveringStep } from './types.js';
 
 const DEFAULT_MAX_K = 8;
 
-function squareKey(s) {
+interface Square {
+  x: number;
+  y: number;
+  size: number;
+}
+
+function squareKey(s: Square): string {
   return `${s.x},${s.y},${s.size}`;
 }
 
 /** Convert list of squares to rectangle list for drawing: { x, y, w, h }. */
-function squaresToRects(squares) {
+function squaresToRects(squares: Square[]): Rectangle[] {
   return squares.map(s => ({ x: s.x, y: s.y, w: s.size, h: s.size }));
 }
 
 /**
  * Fill region with a grid of minSize x minSize squares (only those fully inside the region).
  */
-function fillGrid(region, minSize) {
+function fillGrid(region: Polygon | Region, minSize: number): Square[] {
   const bb = bbox(region);
-  const squares = [];
+  const squares: Square[] = [];
   for (let i = 0; i * minSize < bb.w; i++) {
     for (let j = 0; j * minSize < bb.h; j++) {
       const x = bb.x + i * minSize;
@@ -38,7 +45,7 @@ function fillGrid(region, minSize) {
 /**
  * Check if all k×k squares exist with top-left at (x, y) and given size.
  */
-function hasBlock(squareSet, x, y, size, k) {
+function hasBlock(squareSet: Set<string>, x: number, y: number, size: number, k: number): boolean {
   for (let di = 0; di < k; di++) {
     for (let dj = 0; dj < k; dj++) {
       if (!squareSet.has(squareKey({ x: x + di * size, y: y + dj * size, size }))) {
@@ -49,21 +56,33 @@ function hasBlock(squareSet, x, y, size, k) {
   return true;
 }
 
+interface MergeResult {
+  x: number;
+  y: number;
+  size: number;
+  k: number;
+}
+
 /**
  * Find one k×k block to merge (largest k first, then by size). Returns { x, y, size, k } or null.
- * Optional excludeKeys: set of square keys to skip (e.g. squares already considered).
  */
-function findMerge(squareSet, squareList, maxK, minK, excludeKeys = null) {
-  const bySize = new Map();
+function findMerge(
+  squareSet: Set<string>,
+  squareList: Square[],
+  maxK: number,
+  minK: number,
+  excludeKeys: Set<string> | null
+): MergeResult | null {
+  const bySize = new Map<number, Square[]>();
   for (const s of squareList) {
     if (excludeKeys && excludeKeys.has(squareKey(s))) continue;
     if (!bySize.has(s.size)) bySize.set(s.size, []);
-    bySize.get(s.size).push(s);
+    bySize.get(s.size)!.push(s);
   }
   const sizes = [...bySize.keys()].sort((a, b) => a - b);
   for (const k of kHalvingRange(maxK, minK)) {
     for (const size of sizes) {
-      for (const s of bySize.get(size)) {
+      for (const s of bySize.get(size)!) {
         const { x, y } = s;
         if (hasBlock(squareSet, x, y, size, k)) {
           return { x, y, size, k };
@@ -75,10 +94,10 @@ function findMerge(squareSet, squareList, maxK, minK, excludeKeys = null) {
 }
 
 /** Yields k values by halving from maxK down to minK (e.g. 1024, 512, 256, ..., 2). */
-function* kHalvingRange(maxK, minK) {
+function* kHalvingRange(maxK: number, minK: number): Generator<number> {
   let k = Math.floor(maxK);
   const min = Math.max(2, Math.floor(minK));
-  const seen = new Set();
+  const seen = new Set<number>();
   while (k >= min) {
     if (!seen.has(k)) {
       seen.add(k);
@@ -90,12 +109,16 @@ function* kHalvingRange(maxK, minK) {
   }
 }
 
+export interface RunCoveringOptions {
+  minSize?: number;
+  maxK?: number;
+  minK?: number;
+}
+
 /**
  * Run grid-fill + merge covering: yields { rectangles, remaining, iteration } for animation.
- * Options: minSize (smallest square side), maxK (max merge block, up to 1024), minK (min k, default 2).
- * k is tried by halving: maxK, maxK/2, maxK/4, ... down to minK.
  */
-export function* runCovering(polygons, options = {}) {
+export function* runCovering(polygons: Polygon[], options: RunCoveringOptions = {}): Generator<CoveringStep> {
   const { minSize = 8, maxK = DEFAULT_MAX_K, minK = 2 } = options;
   const capK = Math.max(2, Math.min(1024, Math.floor(maxK)));
   const capMinK = Math.max(2, Math.min(capK, Math.floor(minK)));
@@ -105,7 +128,7 @@ export function* runCovering(polygons, options = {}) {
     return;
   }
 
-  let squares = [];
+  let squares: Square[] = [];
   for (const reg of regions) {
     squares = squares.concat(fillGrid(reg, minSize));
   }
@@ -114,11 +137,10 @@ export function* runCovering(polygons, options = {}) {
   yield { rectangles: squaresToRects(squares), remaining: [], iteration };
 
   const squareSet = new Set(squares.map(squareKey));
-  /** Keys of squares that have been merged (removed); never consider again. */
-  const mergedKeys = new Set();
+  const mergedKeys = new Set<string>();
 
   while (true) {
-    let merge = null;
+    let merge: MergeResult | null = null;
     if (squares.length > 0) {
       const last = squares[squares.length - 1];
       for (const k of kHalvingRange(capK, capMinK)) {
@@ -137,7 +159,7 @@ export function* runCovering(polygons, options = {}) {
 
     const { x, y, size, k } = merge;
     const newSize = size * k;
-    const toRemove = [];
+    const toRemove: Square[] = [];
     for (let di = 0; di < k; di++) {
       for (let dj = 0; dj < k; dj++) {
         toRemove.push({ x: x + di * size, y: y + dj * size, size });
@@ -161,7 +183,7 @@ export function* runCovering(polygons, options = {}) {
 }
 
 /** Polygon as array of {x,y} -> GeoJSON polygon coords (closed ring). */
-function toMartinezPolygon(points) {
+function toMartinezPolygon(points: Point[]): number[][][] {
   const ring = points.map(p => [p.x, p.y]);
   if (ring.length > 0 && (ring[0][0] !== ring[ring.length - 1][0] || ring[0][1] !== ring[ring.length - 1][1])) {
     ring.push([ring[0][0], ring[0][1]]);
@@ -170,13 +192,13 @@ function toMartinezPolygon(points) {
 }
 
 /** Region { exterior, holes } -> GeoJSON polygon [ exteriorRing, ...holeRings ]. */
-function toMartinezRegion(region) {
-  const exterior = (Array.isArray(region) ? region : region.exterior).map(p => [p.x, p.y]);
+function toMartinezRegion(region: Region): number[][][] {
+  const exterior = (region.exterior || []).map(p => [p.x, p.y]);
   if (exterior.length > 0 && (exterior[0][0] !== exterior[exterior.length - 1][0] || exterior[0][1] !== exterior[exterior.length - 1][1])) {
     exterior.push([exterior[0][0], exterior[0][1]]);
   }
-  const rings = [exterior];
-  const holes = Array.isArray(region) ? [] : (region.holes || []);
+  const rings: number[][][] = [exterior];
+  const holes = region.holes || [];
   for (const hole of holes) {
     const h = hole.map(p => [p.x, p.y]);
     if (h.length > 0 && (h[0][0] !== h[h.length - 1][0] || h[0][1] !== h[h.length - 1][1])) h.push([h[0][0], h[0][1]]);
@@ -185,58 +207,14 @@ function toMartinezRegion(region) {
   return rings;
 }
 
-/** Rectangle {x, y, w, h} -> GeoJSON polygon (closed ring). */
-function rectToMartinez(r) {
-  const { x, y, w, h } = r;
-  return [[[x, y], [x + w, y], [x + w, y + h], [x, y + h], [x, y]]];
-}
-
-/** Martinez result (polygon or multipolygon) -> array of point arrays. */
-function fromMartinez(geom) {
-  if (!geom || geom.length === 0) return [];
-  const out = [];
-  for (const ring of geom) {
-    if (!ring || ring.length === 0) continue;
-    const points = ring.map(([x, y]) => ({ x, y }));
-    if (points.length > 1 && points[0].x === points[points.length - 1].x && points[0].y === points[points.length - 1].y) {
-      points.pop();
-    }
-    if (points.length >= 3) out.push(points);
-  }
-  return out;
-}
-
-/** Union multiple polygons (array of point arrays) -> array of regions for covering. */
-export function unionPolygons(polygonList) {
-  if (!polygonList || polygonList.length === 0) return [];
-  if (polygonList.length === 1) return [polygonList[0]];
-  let acc = toMartinezPolygon(polygonList[0]);
-  for (let i = 1; i < polygonList.length; i++) {
-    const next = toMartinezPolygon(polygonList[i]);
-    acc = martinez.union(acc, next);
-    if (!acc) return [];
-  }
-  const isMultiPolygon = acc.length > 1 && acc.every(poly => poly.length === 1);
-  if (isMultiPolygon) {
-    return acc.map(poly => ({ exterior: ringToPoints(poly[0]), holes: poly.slice(1).map(ringToPoints).filter(p => p.length > 0) }));
-  }
-  // Single polygon (possibly with holes): acc[0] is Polygon = Ring[]
-  const polygon = acc[0];
-  const rings = polygon.map(ring => ringToPoints(ring)).filter(p => p.length >= 3);
-  if (rings.length === 0) return [];
-  const byArea = rings.map(r => ({ r, a: Math.abs(signedArea(r)) }));
-  byArea.sort((a, b) => b.a - a.a);
-  return [{ exterior: byArea[0].r, holes: byArea.slice(1).map(x => x.r) }];
-}
-
-function ringToPoints(ring) {
+function ringToPoints(ring: number[][]): Point[] {
   if (!ring || ring.length === 0) return [];
   const pts = ring.map(([x, y]) => ({ x, y }));
   if (pts.length > 1 && pts[0].x === pts[pts.length - 1].x && pts[0].y === pts[pts.length - 1].y) pts.pop();
   return pts.length >= 3 ? pts : [];
 }
 
-function signedArea(pts) {
+function signedArea(pts: Point[]): number {
   let a = 0;
   for (let i = 0, n = pts.length; i < n; i++) {
     const j = (i + 1) % n;
@@ -245,11 +223,41 @@ function signedArea(pts) {
   return a / 2;
 }
 
-/** Area of one region: exterior ring area minus hole areas. Region may be { exterior, holes } or a single ring (points). */
-function regionArea(region) {
+/** Union multiple polygons (array of point arrays) -> array of regions for covering. */
+export function unionPolygons(polygonList: Polygon[]): Region[] {
+  if (!polygonList || polygonList.length === 0) return [];
+  if (polygonList.length === 1) return [{ exterior: polygonList[0], holes: [] }];
+  type Ring = number[][];
+  type GeoPolygon = Ring[];
+  type GeoMultiPolygon = GeoPolygon[];
+  let acc: GeoPolygon | GeoMultiPolygon = toMartinezPolygon(polygonList[0]);
+  for (let i = 1; i < polygonList.length; i++) {
+    const next = toMartinezPolygon(polygonList[i]);
+    const result = martinez.union(acc, next);
+    if (!result) return [];
+    acc = result as GeoPolygon | GeoMultiPolygon;
+  }
+  // MultiPolygon: array of polygons, each polygon is array of rings
+  const isMultiPolygon = acc.length > 1 && (acc as GeoMultiPolygon).every((poly) => poly.length === 1);
+  if (isMultiPolygon) {
+    return (acc as GeoMultiPolygon).map((poly) => ({
+      exterior: ringToPoints(poly[0]),
+      holes: poly.slice(1).map(ringToPoints).filter(p => p.length > 0),
+    }));
+  }
+  // Single polygon: array of rings (exterior + holes)
+  const rings = (acc as GeoPolygon).map(ring => ringToPoints(ring)).filter(p => p.length >= 3);
+  if (rings.length === 0) return [];
+  const byArea = rings.map(r => ({ r, a: Math.abs(signedArea(r)) }));
+  byArea.sort((a, b) => b.a - a.a);
+  return [{ exterior: byArea[0].r, holes: byArea.slice(1).map(x => x.r) }];
+}
+
+/** Area of one region: exterior ring area minus hole areas. */
+function regionArea(region: Region): number {
   if (!region) return 0;
-  const exterior = region.exterior != null ? region.exterior : region;
-  const holes = Array.isArray(region) ? [] : (region.holes || []);
+  const exterior = region.exterior || [];
+  const holes = region.holes || [];
   let a = Math.abs(signedArea(exterior));
   for (const h of holes) {
     a -= Math.abs(signedArea(h));
@@ -259,9 +267,8 @@ function regionArea(region) {
 
 /**
  * Total area of the union of the given polygons (world square units).
- * Uses the same union + per-ring signed area as the covering. Returns 0 if no polygons.
  */
-export function getUnionArea(polygonList) {
+export function getUnionArea(polygonList: Polygon[]): number {
   const regions = unionPolygons(polygonList);
   if (!regions || regions.length === 0) return 0;
   return regions.reduce((sum, reg) => sum + regionArea(reg), 0);

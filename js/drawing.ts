@@ -3,11 +3,13 @@
  * Points are {x, y} in world coordinates.
  */
 
+import type { Point, Polygon, Region, BBox } from './types.js';
+
 /**
  * Check if point (px, py) is inside polygon (array of {x,y}).
  * Ray-casting.
  */
-export function pointInPolygon(px, py, points) {
+export function pointInPolygon(px: number, py: number, points: Point[]): boolean {
   if (!points || points.length < 3) return false;
   let inside = false;
   const n = points.length;
@@ -24,7 +26,7 @@ export function pointInPolygon(px, py, points) {
 /**
  * Region: either simple polygon (array of {x,y}) or { exterior, holes } where holes is array of point arrays.
  */
-function pointInRegion(px, py, region) {
+function pointInRegion(px: number, py: number, region: Polygon | Region): boolean {
   const exterior = Array.isArray(region) ? region : region.exterior;
   const holes = Array.isArray(region) ? [] : (region.holes || []);
   if (!pointInPolygon(px, py, exterior)) return false;
@@ -38,14 +40,14 @@ function pointInRegion(px, py, region) {
  * Check if a rectangle is fully inside the polygon (or region with holes).
  * All four corners must be inside and no edge of the rectangle may cross the boundary.
  */
-export function rectInsidePolygon(x, y, w, h, points) {
+export function rectInsidePolygon(x: number, y: number, w: number, h: number, points: Point[]): boolean {
   return rectInsideRegion(x, y, w, h, points);
 }
 
-export function rectInsideRegion(x, y, w, h, region) {
+export function rectInsideRegion(x: number, y: number, w: number, h: number, region: Polygon | Region): boolean {
   const exterior = Array.isArray(region) ? region : region.exterior;
   const holes = Array.isArray(region) ? [] : (region.holes || []);
-  const corners = [
+  const corners: Point[] = [
     { x, y },
     { x: x + w, y },
     { x: x + w, y: y + h },
@@ -57,7 +59,7 @@ export function rectInsideRegion(x, y, w, h, region) {
       if (pointInPolygon(c.x, c.y, hole)) return false;
     }
   }
-  const rectSegments = [
+  const rectSegments: [number, number, number, number][] = [
     [x, y, x + w, y],
     [x + w, y, x + w, y + h],
     [x + w, y + h, x, y + h],
@@ -77,7 +79,7 @@ export function rectInsideRegion(x, y, w, h, region) {
   return true;
 }
 
-function segmentsIntersect(ax, ay, bx, by, cx, cy, dx, dy) {
+function segmentsIntersect(ax: number, ay: number, bx: number, by: number, cx: number, cy: number, dx: number, dy: number): boolean {
   const o1 = orient(ax, ay, bx, by, cx, cy);
   const o2 = orient(ax, ay, bx, by, dx, dy);
   const o3 = orient(cx, cy, dx, dy, ax, ay);
@@ -90,19 +92,19 @@ function segmentsIntersect(ax, ay, bx, by, cx, cy, dx, dy) {
   return false;
 }
 
-function orient(ox, oy, px, py, qx, qy) {
+function orient(ox: number, oy: number, px: number, py: number, qx: number, qy: number): -1 | 0 | 1 {
   const v = (py - oy) * (qx - px) - (px - ox) * (qy - py);
   return v < 0 ? -1 : v > 0 ? 1 : 0;
 }
 
-function onSegment(ax, ay, bx, by, qx, qy) {
+function onSegment(ax: number, ay: number, bx: number, by: number, qx: number, qy: number): boolean {
   return Math.min(ax, bx) <= qx && qx <= Math.max(ax, bx) && Math.min(ay, by) <= qy && qy <= Math.max(ay, by);
 }
 
 /**
  * Bounding box of points or region (uses exterior only).
  */
-export function bbox(pointsOrRegion) {
+export function bbox(pointsOrRegion: Point[] | Region): BBox {
   const points = Array.isArray(pointsOrRegion) ? pointsOrRegion : (pointsOrRegion?.exterior || []);
   if (!points.length) return { x: 0, y: 0, w: 0, h: 0 };
   let minX = points[0].x, minY = points[0].y, maxX = minX, maxY = minY;
@@ -118,7 +120,7 @@ export function bbox(pointsOrRegion) {
 /**
  * Distance from point (px, py) to segment (ax,ay)-(bx,by).
  */
-export function pointToSegmentDist(px, py, ax, ay, bx, by) {
+export function pointToSegmentDist(px: number, py: number, ax: number, ay: number, bx: number, by: number): number {
   const abx = bx - ax, aby = by - ay;
   const apx = px - ax, apy = py - ay;
   const ab2 = abx * abx + aby * aby;
@@ -132,7 +134,7 @@ export function pointToSegmentDist(px, py, ax, ay, bx, by) {
  * Hit-test: is (wx, wy) near the polygon boundary (for closing)?
  * Returns true if within threshold of any edge.
  */
-export function hitTestPolygonEdge(wx, wy, points, threshold) {
+export function hitTestPolygonEdge(wx: number, wy: number, points: Point[], threshold: number): boolean {
   if (!points || points.length < 2) return false;
   for (let i = 0, n = points.length; i < n; i++) {
     const j = (i + 1) % n;
