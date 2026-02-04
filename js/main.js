@@ -409,9 +409,7 @@ function startCovering() {
         const { value, done } = gen.next();
         if (done || !state.coveringRunning) {
           if (!done) break;
-          state.rectangles = value.rectangles;
-          state.remaining = value.remaining;
-          state.coveringIteration = value.iteration ?? state.coveringIteration;
+          // When done, generator returns undefined; last yielded value was already applied
           finish();
           return;
         }
