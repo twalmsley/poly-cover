@@ -778,7 +778,24 @@ btnClear.addEventListener('click', clearAll);
 
 function resetZoomView() {
   const bounds = getWorldBounds();
-  canvasState.resetZoom(bounds);
+  const wrap = document.getElementById('canvas-wrap');
+  const toolbar = document.getElementById('toolbar');
+  let viewport;
+  if (wrap && toolbar) {
+    const wrapRect = wrap.getBoundingClientRect();
+    const toolRect = toolbar.getBoundingClientRect();
+    const overlapTop = Math.max(0, toolRect.bottom - wrapRect.top);
+    if (overlapTop > 0 && overlapTop < wrapRect.height) {
+      const visibleHeight = wrapRect.height - overlapTop;
+      viewport = {
+        width: wrapRect.width,
+        height: visibleHeight,
+        centerX: wrapRect.width / 2,
+        centerY: overlapTop + visibleHeight / 2,
+      };
+    }
+  }
+  canvasState.resetZoom(bounds, viewport);
   draw();
 }
 
