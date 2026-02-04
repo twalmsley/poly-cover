@@ -104,6 +104,35 @@ function downloadFile(filename, content, mimeType) {
   URL.revokeObjectURL(a.href);
 }
 
+/**
+ * Scale preset polygons and translate so their center is at the canvas view center.
+ * @param {Array<Array<{x: number, y: number}>>} polygons
+ * @param {number} [scaleFactor=3]
+ * @returns {Array<Array<{x: number, y: number}>>}
+ */
+function transformPresetToView(polygons, scaleFactor = 3) {
+  if (!polygons?.length) return polygons;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const ring of polygons) {
+    for (const p of ring) {
+      minX = Math.min(minX, p.x);
+      minY = Math.min(minY, p.y);
+      maxX = Math.max(maxX, p.x);
+      maxY = Math.max(maxY, p.y);
+    }
+  }
+  const bboxCx = (minX + maxX) / 2;
+  const bboxCy = (minY + maxY) / 2;
+  const rect = canvas.getBoundingClientRect();
+  const viewCenter = canvasState.screenToWorld(rect.left + rect.width / 2, rect.top + rect.height / 2);
+  return polygons.map((ring) =>
+    ring.map((p) => ({
+      x: (p.x - bboxCx) * scaleFactor + viewCenter.x,
+      y: (p.y - bboxCy) * scaleFactor + viewCenter.y,
+    }))
+  );
+}
+
 function applyImport(result, toastMessage = null) {
   if (result.polygons != null) {
     state.polygons = result.polygons;
@@ -707,7 +736,8 @@ if (btnSamples && samplesDropdown && samplesMenu) {
     if (!btn) return;
     const preset = PRESETS.find((p) => p.id === btn.dataset.presetId);
     if (preset) {
-      applyImport({ polygons: preset.polygons, rectangles: [] }, `Loaded: ${preset.name}`);
+      const polygons = transformPresetToView(preset.polygons);
+      applyImport({ polygons, rectangles: [] }, `Loaded: ${preset.name}`);
       samplesDropdown.classList.remove('open');
     }
   });
