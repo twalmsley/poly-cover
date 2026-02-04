@@ -11,7 +11,7 @@ import {
   exportRectanglesAsCode,
   exportRectanglesSVG,
   exportAllJSON,
-  importPolygonsFromJSON,
+  importFromJSON,
 } from './io.js';
 
 const canvas = document.getElementById('c');
@@ -86,20 +86,37 @@ function downloadFile(filename, content, mimeType) {
 }
 
 function applyImport(result) {
-  state.polygons = result.polygons;
-  state.currentPolygon = null;
-  state.editMode = false;
-  state.selectedPolygonIndex = null;
-  state.rectangles = [];
-  state.remaining = [];
-  state.coveringIteration = 0;
-  state.undoStack = [];
-  state.redoStack = [];
+  if (result.polygons != null) {
+    state.polygons = result.polygons;
+    state.currentPolygon = null;
+    state.editMode = false;
+    state.selectedPolygonIndex = null;
+    state.undoStack = [];
+    state.redoStack = [];
+  }
+  if (result.rectangles != null) {
+    state.rectangles = result.rectangles;
+    state.remaining = [];
+    state.coveringIteration = state.rectangles.length > 0 ? 1 : 0;
+  }
+  if (result.polygons == null && result.rectangles == null) {
+    state.polygons = [];
+    state.currentPolygon = null;
+    state.rectangles = [];
+    state.remaining = [];
+    state.coveringIteration = 0;
+    state.undoStack = [];
+    state.redoStack = [];
+  }
   draw();
   updateUndoRedoButtons();
   updateDeleteEditButtons();
-  const n = state.polygons.length;
-  showToast(n === 0 ? 'Imported (no polygons)' : `Imported ${n} polygon${n === 1 ? '' : 's'}`);
+  const np = result.polygons?.length ?? 0;
+  const nr = result.rectangles?.length ?? 0;
+  const parts = [];
+  if (np > 0) parts.push(`${np} polygon${np === 1 ? '' : 's'}`);
+  if (nr > 0) parts.push(`${nr} rectangle${nr === 1 ? '' : 's'}`);
+  showToast(parts.length ? `Imported ${parts.join(', ')}` : 'Imported (empty)');
 }
 
 function updateSquareCount() {
@@ -521,7 +538,7 @@ importFileInput?.addEventListener('change', (e) => {
   const reader = new FileReader();
   reader.onload = () => {
     try {
-      const result = importPolygonsFromJSON(reader.result);
+      const result = importFromJSON(reader.result);
       applyImport(result);
     } catch (err) {
       showToast('Import failed: ' + (err instanceof Error ? err.message : String(err)));
@@ -538,7 +555,7 @@ document.getElementById('btn-import-paste')?.addEventListener('click', async () 
       showToast('Clipboard empty or paste not allowed');
       return;
     }
-    const result = importPolygonsFromJSON(text);
+    const result = importFromJSON(text);
     applyImport(result);
   } catch (err) {
     showToast('Import failed: ' + (err instanceof Error ? err.message : String(err)));
