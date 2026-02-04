@@ -241,10 +241,17 @@ function updateStats() {
   const n = state.rectangles.length;
   const efficiency = n > 0 && polygonArea != null ? polygonArea / n : null;
 
+  const coveragePct =
+    polygonArea != null && polygonArea > 0 && coveredArea != null
+      ? (coveredArea / polygonArea) * 100
+      : null;
+  const coverageStr =
+    coveragePct != null ? `${coveragePct.toFixed(1)}% coverage` : 'Coverage: —';
+
   const paStr = polygonArea != null ? polygonArea.toFixed(1) + ' units²' : '—';
   const caStr = coveredArea != null ? coveredArea.toFixed(1) + ' units²' : '—';
   const effStr = efficiency != null ? efficiency.toFixed(1) + ' units²/square' : '—';
-  statsAreaEl.textContent = `Polygon area: ${paStr}  ·  Covered area: ${caStr}  ·  Efficiency: ${effStr}`;
+  statsAreaEl.textContent = `Polygon area: ${paStr}  ·  Covered area: ${caStr}  ·  Efficiency: ${effStr}  ·  ${coverageStr}`;
 }
 
 function draw() {
