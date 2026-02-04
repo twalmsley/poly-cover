@@ -13,6 +13,8 @@ const btnClose = document.getElementById('btn-close');
 const btnNew = document.getElementById('btn-new');
 const btnRun = document.getElementById('btn-run');
 const btnClear = document.getElementById('btn-clear');
+const btnUndo = document.getElementById('btn-undo');
+const btnRedo = document.getElementById('btn-redo');
 const inputMinSize = document.getElementById('min-size');
 const inputMaxK = document.getElementById('max-k');
 const inputMinK = document.getElementById('min-k');
@@ -29,6 +31,8 @@ const state = {
   drawMode: false,
   coveringRunning: false,
   spaceDown: false,
+  undoStack: [],
+  redoStack: [],
 };
 
 const CLOSE_HIT_THRESHOLD = 12;
@@ -87,14 +91,20 @@ function screenToWorld(clientX, clientY) {
 function addPoint(wx, wy) {
   if (!state.currentPolygon) state.currentPolygon = [];
   state.currentPolygon.push({ x: wx, y: wy });
+  state.undoStack.push({ type: 'add_point', point: { x: wx, y: wy } });
+  state.redoStack = [];
   draw();
+  updateUndoRedoButtons();
 }
 
 function closePolygon() {
   if (state.currentPolygon && state.currentPolygon.length >= 3) {
+    state.undoStack.push({ type: 'close_polygon' });
+    state.redoStack = [];
     state.polygons.push([...state.currentPolygon]);
     state.currentPolygon = null;
     draw();
+    updateUndoRedoButtons();
   }
 }
 
@@ -103,7 +113,10 @@ function newPolygon() {
     state.polygons.push([...state.currentPolygon]);
   }
   state.currentPolygon = [];
+  state.undoStack = [];
+  state.redoStack = [];
   draw();
+  updateUndoRedoButtons();
 }
 
 function clearAll() {
@@ -113,7 +126,50 @@ function clearAll() {
   state.remaining = [];
   state.coveringIteration = 0;
   state.coveringRunning = false;
+  state.undoStack = [];
+  state.redoStack = [];
   draw();
+  updateUndoRedoButtons();
+}
+
+function updateUndoRedoButtons() {
+  if (btnUndo) btnUndo.disabled = state.undoStack.length === 0 || state.coveringRunning;
+  if (btnRedo) btnRedo.disabled = state.redoStack.length === 0 || state.coveringRunning;
+}
+
+function undo() {
+  if (state.undoStack.length === 0 || state.coveringRunning) return;
+  const entry = state.undoStack.pop();
+  state.redoStack.push(entry);
+  if (entry.type === 'add_point') {
+    if (state.currentPolygon && state.currentPolygon.length > 0) {
+      state.currentPolygon.pop();
+      if (state.currentPolygon.length === 0) state.currentPolygon = [];
+    }
+  } else if (entry.type === 'close_polygon') {
+    if (state.polygons.length > 0) {
+      state.currentPolygon = [...state.polygons.pop()];
+    }
+  }
+  draw();
+  updateUndoRedoButtons();
+}
+
+function redo() {
+  if (state.redoStack.length === 0 || state.coveringRunning) return;
+  const entry = state.redoStack.pop();
+  state.undoStack.push(entry);
+  if (entry.type === 'add_point') {
+    if (!state.currentPolygon) state.currentPolygon = [];
+    state.currentPolygon.push(entry.point);
+  } else if (entry.type === 'close_polygon') {
+    if (state.currentPolygon && state.currentPolygon.length >= 3) {
+      state.polygons.push([...state.currentPolygon]);
+      state.currentPolygon = null;
+    }
+  }
+  draw();
+  updateUndoRedoButtons();
 }
 
 function startCovering() {
@@ -203,6 +259,12 @@ document.addEventListener('keydown', (e) => {
   if (e.code === 'Space') {
     state.spaceDown = true;
     wrap.classList.add('pan');
+    return;
+  }
+  if (e.key === 'z' && (e.metaKey || e.ctrlKey) && state.drawMode && !state.coveringRunning) {
+    e.preventDefault();
+    if (e.shiftKey) redo();
+    else undo();
   }
 });
 
@@ -217,9 +279,12 @@ document.addEventListener('keyup', (e) => {
 btnDraw.addEventListener('click', () => {
   state.drawMode = !state.drawMode;
   btnDraw.classList.toggle('active', state.drawMode);
+  updateUndoRedoButtons();
 });
 
 btnClose.addEventListener('click', closePolygon);
+btnUndo.addEventListener('click', undo);
+btnRedo.addEventListener('click', redo);
 btnNew.addEventListener('click', newPolygon);
 
 btnRun.addEventListener('click', () => {
@@ -236,3 +301,4 @@ window.addEventListener('resize', () => {
 
 canvasState.resize();
 draw();
+updateUndoRedoButtons();
