@@ -143,3 +143,37 @@ export function hitTestPolygonEdge(wx: number, wy: number, points: Point[], thre
   }
   return false;
 }
+
+/**
+ * Minimum distance from point (px, py) to the boundary of the region (exterior and holes).
+ */
+export function distanceFromPointToRegionBoundary(px: number, py: number, region: Polygon | Region): number {
+  const exterior = Array.isArray(region) ? region : region.exterior;
+  const holes = Array.isArray(region) ? [] : (region.holes || []);
+  let minDist = Infinity;
+  for (const ring of [exterior, ...holes]) {
+    for (let i = 0, n = ring.length; i < n; i++) {
+      const j = (i + 1) % n;
+      const d = pointToSegmentDist(px, py, ring[i].x, ring[i].y, ring[j].x, ring[j].y);
+      minDist = Math.min(minDist, d);
+    }
+  }
+  return minDist;
+}
+
+/**
+ * Check if the full circle (center cx,cy radius r) is inside the region.
+ * Center must be inside and distance to boundary must be >= r.
+ */
+export function circleInsideRegion(cx: number, cy: number, r: number, region: Polygon | Region): boolean {
+  if (r <= 0) return false;
+  const exterior = Array.isArray(region) ? region : region.exterior;
+  const holes = Array.isArray(region) ? [] : (region.holes || []);
+  if (!pointInPolygon(cx, cy, exterior)) return false;
+  for (const hole of holes) {
+    if (pointInPolygon(cx, cy, hole)) return false;
+  }
+  const dist = distanceFromPointToRegionBoundary(cx, cy, region);
+  return dist >= r;
+}
+

@@ -3,7 +3,7 @@
  * All drawing uses world coordinates; we apply scale and translation.
  */
 
-import type { Point, Polygon, Rectangle, Bounds } from './types.js';
+import type { Point, Polygon, Rectangle, Circle, Bounds } from './types.js';
 
 export interface DrawPolygonOptions {
   fill?: string | null;
@@ -18,6 +18,12 @@ export interface DrawRectOptions {
 }
 
 export interface DrawRemainingOptions {
+  fill?: string;
+  stroke?: string;
+  lineWidth?: number;
+}
+
+export interface DrawCircleOptions {
   fill?: string;
   stroke?: string;
   lineWidth?: number;
@@ -209,3 +215,18 @@ export function drawRemaining(ctx: CanvasRenderingContext2D, polygons: Polygon[]
     drawPolygon(ctx, points, { fill, stroke, lineWidth });
   }
 }
+
+/** Draw a circle (center cx,cy and radius r). */
+export function drawCircle(ctx: CanvasRenderingContext2D, c: Circle, options: DrawCircleOptions = {}): void {
+  const { fill = 'rgba(78, 205, 196, 0.35)', stroke = '#4ecdc4', lineWidth = 1.5 } = options;
+  ctx.beginPath();
+  ctx.arc(c.cx, c.cy, c.r, 0, Math.PI * 2);
+  if (fill) {
+    ctx.fillStyle = fill;
+    ctx.fill();
+  }
+  ctx.strokeStyle = stroke;
+  ctx.lineWidth = lineWidth;
+  ctx.stroke();
+}
+

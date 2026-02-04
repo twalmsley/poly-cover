@@ -4,8 +4,8 @@
  */
 
 import * as martinez from 'martinez-polygon-clipping';
-import { rectInsideRegion, bbox } from './drawing.js';
-import type { Point, Polygon, Rectangle, Region, CoveringStep, CoveringShape } from './types.js';
+import { rectInsideRegion, bbox, circleInsideRegion } from './drawing.js';
+import type { Point, Polygon, Rectangle, Region, CoveringStep, CoveringShape, Circle } from './types.js';
 
 const DEFAULT_MAX_K = 8;
 
@@ -189,6 +189,69 @@ function* runCoveringRectangles(
   yield { rectangles: rects, remaining: [], iteration };
 }
 
+/** Yields diameters from maxK down to minK by halving (maxK, maxK/2, maxK/4, ...). */
+function* diameterHalvingRange(maxK: number, minK: number): Generator<number> {
+  let d = Math.floor(maxK);
+  const min = Math.max(2, Math.floor(minK));
+  const seen = new Set<number>();
+  while (d >= min) {
+    if (!seen.has(d)) {
+      seen.add(d);
+      yield d;
+    }
+    const next = Math.floor(d / 2);
+    if (next >= d) break;
+    d = next;
+  }
+}
+
+function circleOverlapsExisting(cx: number, cy: number, r: number, circles: Circle[]): boolean {
+  for (const c of circles) {
+    const dist = Math.hypot(cx - c.cx, cy - c.cy);
+    if (dist < r + c.r) return true;
+  }
+  return false;
+}
+
+/**
+ * Run circle covering: place circles of diameter maxK, then fill gaps with maxK/2, maxK/4, ... down to minK.
+ * Circles are placed on a grid (step = diameter) so same-size circles don't overlap; new circles must not overlap any existing.
+ */
+function* runCoveringCircles(regions: Region[], _minSize: number, maxK: number, minK: number): Generator<CoveringStep> {
+  const circles: Circle[] = [];
+  const capK = Math.max(2, Math.min(1024, Math.floor(maxK)));
+  const capMinK = Math.max(2, Math.min(capK, Math.floor(minK)));
+  let iteration = 0;
+
+  yield { rectangles: [], circles: [], remaining: [], iteration };
+
+  for (const diameter of diameterHalvingRange(capK, capMinK)) {
+    const r = diameter / 2;
+    let added = 0;
+    for (const reg of regions) {
+      const bb = bbox(reg);
+      for (let i = 0; ; i++) {
+        const cx = bb.x + r + i * diameter;
+        if (cx - r > bb.x + bb.w) break;
+        for (let j = 0; ; j++) {
+          const cy = bb.y + r + j * diameter;
+          if (cy - r > bb.y + bb.h) break;
+          if (!circleInsideRegion(cx, cy, r, reg)) continue;
+          if (circleOverlapsExisting(cx, cy, r, circles)) continue;
+          circles.push({ cx, cy, r });
+          added++;
+        }
+      }
+    }
+    if (added > 0) {
+      iteration++;
+      yield { rectangles: [], circles: [...circles], remaining: [], iteration };
+    }
+  }
+
+  yield { rectangles: [], circles, remaining: [], iteration };
+}
+
 /**
  * Check if all k×k squares exist with top-left at (x, y) and given size.
  */
@@ -280,6 +343,10 @@ export function* runCovering(polygons: Polygon[], options: RunCoveringOptions = 
 
   if (shape === 'rectangles') {
     yield* runCoveringRectangles(regions, minSize, capK, capMinK);
+    return;
+  }
+  if (shape === 'circles') {
+    yield* runCoveringCircles(regions, minSize, capK, capMinK);
     return;
   }
 

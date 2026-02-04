@@ -20,6 +20,13 @@ export interface Rectangle {
   height?: number;
 }
 
+/** Circle: center and radius. */
+export interface Circle {
+  cx: number;
+  cy: number;
+  r: number;
+}
+
 /** Region with optional holes (exterior + holes). */
 export interface Region {
   exterior: Point[];
@@ -53,6 +60,7 @@ export interface AppState {
   polygons: Polygon[];
   currentPolygon: Polygon | null;
   rectangles: Rectangle[];
+  circles: Circle[];
   remaining: Polygon[];
   coveringIteration: number;
   drawMode: boolean;
@@ -65,21 +73,23 @@ export interface AppState {
   redoStack: UndoEntry[];
 }
 
-/** Import result: optional polygons and/or rectangles. */
+/** Import result: optional polygons, rectangles, circles. */
 export interface ImportResult {
   polygons?: Polygon[];
   rectangles?: Rectangle[];
+  circles?: Circle[];
 }
 
 /** Covering generator yield value. */
 export interface CoveringStep {
   rectangles: Rectangle[];
+  circles?: Circle[];
   remaining: Polygon[];
   iteration: number;
 }
 
-/** Covering shape strategy: squares (k×k only) or rectangles (any w×h merge). */
-export type CoveringShape = 'squares' | 'rectangles';
+/** Covering shape strategy. */
+export type CoveringShape = 'squares' | 'rectangles' | 'circles';
 
 /** Preset: id, name, polygons. */
 export interface Preset {
