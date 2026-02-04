@@ -13,6 +13,7 @@ import {
   exportAllJSON,
   importFromJSON,
 } from './io.js';
+import { PRESETS } from './presets.js';
 
 const canvas = document.getElementById('c');
 const wrap = document.getElementById('canvas-wrap');
@@ -103,7 +104,36 @@ function downloadFile(filename, content, mimeType) {
   URL.revokeObjectURL(a.href);
 }
 
-function applyImport(result) {
+/**
+ * Scale preset polygons and translate so their center is at the canvas view center.
+ * @param {Array<Array<{x: number, y: number}>>} polygons
+ * @param {number} [scaleFactor=3]
+ * @returns {Array<Array<{x: number, y: number}>>}
+ */
+function transformPresetToView(polygons, scaleFactor = 3) {
+  if (!polygons?.length) return polygons;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const ring of polygons) {
+    for (const p of ring) {
+      minX = Math.min(minX, p.x);
+      minY = Math.min(minY, p.y);
+      maxX = Math.max(maxX, p.x);
+      maxY = Math.max(maxY, p.y);
+    }
+  }
+  const bboxCx = (minX + maxX) / 2;
+  const bboxCy = (minY + maxY) / 2;
+  const rect = canvas.getBoundingClientRect();
+  const viewCenter = canvasState.screenToWorld(rect.left + rect.width / 2, rect.top + rect.height / 2);
+  return polygons.map((ring) =>
+    ring.map((p) => ({
+      x: (p.x - bboxCx) * scaleFactor + viewCenter.x,
+      y: (p.y - bboxCy) * scaleFactor + viewCenter.y,
+    }))
+  );
+}
+
+function applyImport(result, toastMessage = null) {
   if (result.polygons != null) {
     state.polygons = result.polygons;
     state.currentPolygon = null;
@@ -129,12 +159,16 @@ function applyImport(result) {
   draw();
   updateUndoRedoButtons();
   updateDeleteEditButtons();
-  const np = result.polygons?.length ?? 0;
-  const nr = result.rectangles?.length ?? 0;
-  const parts = [];
-  if (np > 0) parts.push(`${np} polygon${np === 1 ? '' : 's'}`);
-  if (nr > 0) parts.push(`${nr} rectangle${nr === 1 ? '' : 's'}`);
-  showToast(parts.length ? `Imported ${parts.join(', ')}` : 'Imported (empty)');
+  if (toastMessage != null) {
+    showToast(toastMessage);
+  } else {
+    const np = result.polygons?.length ?? 0;
+    const nr = result.rectangles?.length ?? 0;
+    const parts = [];
+    if (np > 0) parts.push(`${np} polygon${np === 1 ? '' : 's'}`);
+    if (nr > 0) parts.push(`${nr} rectangle${nr === 1 ? '' : 's'}`);
+    showToast(parts.length ? `Imported ${parts.join(', ')}` : 'Imported (empty)');
+  }
 }
 
 function updateSquareCount() {
@@ -679,6 +713,35 @@ if (btnExport && exportDropdown) {
     exportDropdown.classList.toggle('open');
   });
   document.addEventListener('click', () => exportDropdown?.classList.remove('open'));
+}
+
+// Samples dropdown
+const samplesDropdown = document.getElementById('samples-dropdown');
+const btnSamples = document.getElementById('btn-samples');
+const samplesMenu = document.getElementById('samples-menu');
+if (btnSamples && samplesDropdown && samplesMenu) {
+  for (const preset of PRESETS) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.textContent = preset.name;
+    btn.dataset.presetId = preset.id;
+    samplesMenu.appendChild(btn);
+  }
+  btnSamples.addEventListener('click', (e) => {
+    e.stopPropagation();
+    samplesDropdown.classList.toggle('open');
+  });
+  samplesMenu.addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-preset-id]');
+    if (!btn) return;
+    const preset = PRESETS.find((p) => p.id === btn.dataset.presetId);
+    if (preset) {
+      const polygons = transformPresetToView(preset.polygons);
+      applyImport({ polygons, rectangles: [] }, `Loaded: ${preset.name}`);
+      samplesDropdown.classList.remove('open');
+    }
+  });
+  document.addEventListener('click', () => samplesDropdown?.classList.remove('open'));
 }
 
 const btnHelp = document.getElementById('btn-help');
