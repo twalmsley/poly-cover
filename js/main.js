@@ -5,6 +5,14 @@
 import { makeCanvasState, drawPolygon, drawRect, drawRemaining } from './canvas.js';
 import { runCovering } from './covering.js';
 import { hitTestPolygonEdge, pointInPolygon } from './drawing.js';
+import {
+  exportPolygonsJSON,
+  exportRectanglesJSON,
+  exportRectanglesAsCode,
+  exportRectanglesSVG,
+  exportAllJSON,
+  importFromJSON,
+} from './io.js';
 
 const canvas = document.getElementById('c');
 const wrap = document.getElementById('canvas-wrap');
@@ -38,6 +46,78 @@ const state = {
 };
 
 const CLOSE_HIT_THRESHOLD = 12;
+
+function showToast(message) {
+  const toast = document.getElementById('toast');
+  if (!toast) return;
+  toast.textContent = message;
+  toast.classList.add('show');
+  clearTimeout(showToast._tid);
+  showToast._tid = setTimeout(() => {
+    toast.classList.remove('show');
+  }, 3000);
+}
+
+function copyToClipboard(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    return navigator.clipboard.writeText(text);
+  }
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.select();
+  try {
+    document.execCommand('copy');
+    return Promise.resolve();
+  } finally {
+    document.body.removeChild(ta);
+  }
+}
+
+function downloadFile(filename, content, mimeType) {
+  const blob = new Blob([content], { type: mimeType || 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function applyImport(result) {
+  if (result.polygons != null) {
+    state.polygons = result.polygons;
+    state.currentPolygon = null;
+    state.editMode = false;
+    state.selectedPolygonIndex = null;
+    state.undoStack = [];
+    state.redoStack = [];
+  }
+  if (result.rectangles != null) {
+    state.rectangles = result.rectangles;
+    state.remaining = [];
+    state.coveringIteration = state.rectangles.length > 0 ? 1 : 0;
+  }
+  if (result.polygons == null && result.rectangles == null) {
+    state.polygons = [];
+    state.currentPolygon = null;
+    state.rectangles = [];
+    state.remaining = [];
+    state.coveringIteration = 0;
+    state.undoStack = [];
+    state.redoStack = [];
+  }
+  draw();
+  updateUndoRedoButtons();
+  updateDeleteEditButtons();
+  const np = result.polygons?.length ?? 0;
+  const nr = result.rectangles?.length ?? 0;
+  const parts = [];
+  if (np > 0) parts.push(`${np} polygon${np === 1 ? '' : 's'}`);
+  if (nr > 0) parts.push(`${nr} rectangle${nr === 1 ? '' : 's'}`);
+  showToast(parts.length ? `Imported ${parts.join(', ')}` : 'Imported (empty)');
+}
 
 function updateSquareCount() {
   if (squareCountEl) {
@@ -387,6 +467,100 @@ btnRun.addEventListener('click', () => {
 });
 
 btnClear.addEventListener('click', clearAll);
+
+// Export dropdown
+const exportDropdown = document.getElementById('export-dropdown');
+const btnExport = document.getElementById('btn-export');
+if (btnExport && exportDropdown) {
+  btnExport.addEventListener('click', (e) => {
+    e.stopPropagation();
+    exportDropdown.classList.toggle('open');
+  });
+  document.addEventListener('click', () => exportDropdown?.classList.remove('open'));
+}
+function doExport(getContent, filename, mimeType, description) {
+  const content = getContent();
+  copyToClipboard(content).then(
+    () => showToast(description ? `Copied ${description}` : 'Copied to clipboard'),
+    () => {
+      downloadFile(filename, content, mimeType);
+      showToast('Downloaded ' + filename);
+    }
+  );
+  if (exportDropdown) exportDropdown.classList.remove('open');
+}
+
+document.getElementById('export-polygons-json')?.addEventListener('click', () => {
+  doExport(
+    () => exportPolygonsJSON(state.polygons, state.currentPolygon),
+    'polygons.json',
+    'application/json',
+    'polygons (JSON)'
+  );
+});
+document.getElementById('export-rectangles-json')?.addEventListener('click', () => {
+  doExport(
+    () => exportRectanglesJSON(state.rectangles),
+    'rectangles.json',
+    'application/json',
+    'rectangles (JSON)'
+  );
+});
+document.getElementById('export-rectangles-code')?.addEventListener('click', () => {
+  doExport(
+    () => exportRectanglesAsCode(state.rectangles),
+    'rectangles.json',
+    'application/json',
+    'rectangles (code)'
+  );
+});
+document.getElementById('export-rectangles-svg')?.addEventListener('click', () => {
+  const svg = exportRectanglesSVG(state.rectangles);
+  downloadFile('rectangles.svg', svg, 'image/svg+xml');
+  showToast('Downloaded rectangles.svg');
+  if (exportDropdown) exportDropdown.classList.remove('open');
+});
+document.getElementById('export-all-json')?.addEventListener('click', () => {
+  doExport(
+    () => exportAllJSON(state),
+    'session.json',
+    'application/json',
+    'session (polygons + rectangles)'
+  );
+});
+
+// Import
+const importFileInput = document.getElementById('import-file');
+document.getElementById('btn-import')?.addEventListener('click', () => importFileInput?.click());
+importFileInput?.addEventListener('change', (e) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const result = importFromJSON(reader.result);
+      applyImport(result);
+    } catch (err) {
+      showToast('Import failed: ' + (err instanceof Error ? err.message : String(err)));
+    }
+    e.target.value = '';
+  };
+  reader.readAsText(file);
+});
+
+document.getElementById('btn-import-paste')?.addEventListener('click', async () => {
+  try {
+    const text = navigator.clipboard?.readText ? await navigator.clipboard.readText() : '';
+    if (!text.trim()) {
+      showToast('Clipboard empty or paste not allowed');
+      return;
+    }
+    const result = importFromJSON(text);
+    applyImport(result);
+  } catch (err) {
+    showToast('Import failed: ' + (err instanceof Error ? err.message : String(err)));
+  }
+});
 
 window.addEventListener('resize', () => {
   canvasState.resize();
