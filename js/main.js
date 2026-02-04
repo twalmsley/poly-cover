@@ -26,6 +26,8 @@ const btnRedo = document.getElementById('btn-redo');
 const inputMinSize = document.getElementById('min-size');
 const inputMaxK = document.getElementById('max-k');
 const inputMinK = document.getElementById('min-k');
+const inputSpeedPreset = document.getElementById('speed-preset');
+const inputInstantRun = document.getElementById('instant-run');
 const squareCountEl = document.getElementById('square-count');
 
 const canvasState = makeCanvasState(canvas);
@@ -47,7 +49,18 @@ const state = {
 };
 
 let coveringTimeoutId = null;
+let coveringRafId = null;
 let coveringStep = null;
+
+const SPEED_PRESET_MS = { slow: 200, normal: 80, fast: 20 };
+const STEP_DELAY_MIN = 5;
+const STEP_DELAY_MAX = 500;
+
+function getStepDelayMs() {
+  const preset = inputSpeedPreset?.value || 'normal';
+  const ms = SPEED_PRESET_MS[preset] ?? 80;
+  return Math.max(STEP_DELAY_MIN, Math.min(STEP_DELAY_MAX, ms));
+}
 
 const CLOSE_HIT_THRESHOLD = 12;
 
@@ -226,6 +239,10 @@ function clearAll() {
     clearTimeout(coveringTimeoutId);
     coveringTimeoutId = null;
   }
+  if (coveringRafId != null) {
+    cancelAnimationFrame(coveringRafId);
+    coveringRafId = null;
+  }
   coveringStep = null;
   state.polygons = [];
   state.currentPolygon = null;
@@ -328,14 +345,23 @@ function redo() {
 
 function updateRunButton() {
   if (!btnRun) return;
+  const instant = inputInstantRun?.checked ?? false;
   if (!state.coveringRunning) {
     btnRun.textContent = 'Run covering';
+    btnRun.disabled = false;
+  } else if (instant) {
+    btnRun.textContent = 'Computing…';
+    btnRun.disabled = true;
   } else if (state.coveringPaused) {
     btnRun.textContent = 'Resume';
+    btnRun.disabled = false;
   } else {
     btnRun.textContent = 'Pause';
+    btnRun.disabled = false;
   }
 }
+
+const INSTANT_STEPS_PER_FRAME = 100;
 
 function startCovering() {
   let closed = state.polygons.length > 0 ? [...state.polygons] : [];
@@ -350,6 +376,7 @@ function startCovering() {
   state.remaining = [];
   state.coveringIteration = 0;
   coveringTimeoutId = null;
+  coveringRafId = null;
   coveringStep = null;
 
   const minSize = Math.max(1, Math.min(500, parseInt(inputMinSize.value, 10) || 8));
@@ -357,20 +384,53 @@ function startCovering() {
   const minK = inputMinK ? Math.max(2, Math.min(1024, parseInt(inputMinK.value, 10) || 2)) : 2;
 
   const gen = runCovering(closed, { minSize, maxK, minK });
-  const delay = 80;
+  const instant = inputInstantRun?.checked ?? false;
+  const delay = getStepDelayMs();
+
+  function finish() {
+    state.coveringRunning = false;
+    state.coveringPaused = false;
+    coveringTimeoutId = null;
+    coveringRafId = null;
+    coveringStep = null;
+    draw();
+    updateRunButton();
+    updateUndoRedoButtons();
+    updateDeleteEditButtons();
+  }
+
+  if (instant) {
+    function runInstant() {
+      if (!state.coveringRunning) {
+        finish();
+        return;
+      }
+      for (let i = 0; i < INSTANT_STEPS_PER_FRAME; i++) {
+        const { value, done } = gen.next();
+        if (done || !state.coveringRunning) {
+          if (!done) break;
+          state.rectangles = value.rectangles;
+          state.remaining = value.remaining;
+          state.coveringIteration = value.iteration ?? state.coveringIteration;
+          finish();
+          return;
+        }
+        state.rectangles = value.rectangles;
+        state.remaining = value.remaining;
+        state.coveringIteration = value.iteration ?? state.coveringIteration;
+      }
+      coveringRafId = requestAnimationFrame(runInstant);
+    }
+    updateRunButton();
+    coveringRafId = requestAnimationFrame(runInstant);
+    return;
+  }
 
   function step() {
     if (state.coveringPaused) return;
     const { value, done } = gen.next();
     if (done || !state.coveringRunning) {
-      state.coveringRunning = false;
-      state.coveringPaused = false;
-      coveringTimeoutId = null;
-      coveringStep = null;
-      draw();
-      updateRunButton();
-      updateUndoRedoButtons();
-      updateDeleteEditButtons();
+      finish();
       return;
     }
     state.rectangles = value.rectangles;
@@ -388,6 +448,7 @@ function startCovering() {
 
 function pauseCovering() {
   if (!state.coveringRunning || state.coveringPaused) return;
+  if (inputInstantRun?.checked) return; // instant run is not pausable
   if (coveringTimeoutId != null) {
     clearTimeout(coveringTimeoutId);
     coveringTimeoutId = null;
@@ -623,6 +684,34 @@ window.addEventListener('resize', () => {
   canvasState.resize();
   draw();
 });
+
+// Persist speed and instant-run preference
+const COVERING_PREFS_KEY = 'poly-covering-prefs';
+function loadCoveringPrefs() {
+  try {
+    const raw = localStorage.getItem(COVERING_PREFS_KEY);
+    if (!raw) return;
+    const prefs = JSON.parse(raw);
+    if (inputSpeedPreset && prefs.speed && SPEED_PRESET_MS[prefs.speed] != null) {
+      inputSpeedPreset.value = prefs.speed;
+    }
+    if (inputInstantRun && typeof prefs.instantRun === 'boolean') {
+      inputInstantRun.checked = prefs.instantRun;
+    }
+  } catch (_) {}
+}
+function saveCoveringPrefs() {
+  try {
+    const prefs = {
+      speed: inputSpeedPreset?.value || 'normal',
+      instantRun: inputInstantRun?.checked ?? false,
+    };
+    localStorage.setItem(COVERING_PREFS_KEY, JSON.stringify(prefs));
+  } catch (_) {}
+}
+loadCoveringPrefs();
+inputSpeedPreset?.addEventListener('change', saveCoveringPrefs);
+inputInstantRun?.addEventListener('change', saveCoveringPrefs);
 
 canvasState.resize();
 draw();

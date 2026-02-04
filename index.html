@@ -40,6 +40,14 @@
       color: #eee;
       border-radius: 4px;
     }
+    #toolbar select {
+      padding: 4px 6px;
+      background: #0f0f1a;
+      border: 1px solid #444;
+      color: #eee;
+      border-radius: 4px;
+      cursor: pointer;
+    }
     #toolbar input[type="checkbox"] { accent-color: #e94560; }
     #toolbar .dropdown { position: relative; }
     #toolbar .dropdown-content {
@@ -113,6 +121,8 @@
     <label>Min square size: <input type="number" id="min-size" min="1" max="200" value="4" /></label>
     <label>Max k: <input type="number" id="max-k" min="2" max="1024" value="128" title="Max k×k merge (tried by halving: k, k/2, k/4, …)" /></label>
     <label>Min k: <input type="number" id="min-k" min="2" max="1024" value="2" title="Minimum k (halving stops at this)" /></label>
+    <label>Speed: <select id="speed-preset" title="Animation step delay"><option value="slow">Slow</option><option value="normal" selected>Normal</option><option value="fast">Fast</option></select></label>
+    <label><input type="checkbox" id="instant-run" title="Run to completion without animation" /> Run without animation</label>
     <span id="square-count">Squares: —  ·  Iterations: —</span>
     <div class="dropdown" id="export-dropdown">
       <button type="button" id="btn-export">Export ▾</button>
