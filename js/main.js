@@ -13,6 +13,7 @@ import {
   exportAllJSON,
   importFromJSON,
 } from './io.js';
+import { PRESETS } from './presets.js';
 
 const canvas = document.getElementById('c');
 const wrap = document.getElementById('canvas-wrap');
@@ -103,7 +104,7 @@ function downloadFile(filename, content, mimeType) {
   URL.revokeObjectURL(a.href);
 }
 
-function applyImport(result) {
+function applyImport(result, toastMessage = null) {
   if (result.polygons != null) {
     state.polygons = result.polygons;
     state.currentPolygon = null;
@@ -129,12 +130,16 @@ function applyImport(result) {
   draw();
   updateUndoRedoButtons();
   updateDeleteEditButtons();
-  const np = result.polygons?.length ?? 0;
-  const nr = result.rectangles?.length ?? 0;
-  const parts = [];
-  if (np > 0) parts.push(`${np} polygon${np === 1 ? '' : 's'}`);
-  if (nr > 0) parts.push(`${nr} rectangle${nr === 1 ? '' : 's'}`);
-  showToast(parts.length ? `Imported ${parts.join(', ')}` : 'Imported (empty)');
+  if (toastMessage != null) {
+    showToast(toastMessage);
+  } else {
+    const np = result.polygons?.length ?? 0;
+    const nr = result.rectangles?.length ?? 0;
+    const parts = [];
+    if (np > 0) parts.push(`${np} polygon${np === 1 ? '' : 's'}`);
+    if (nr > 0) parts.push(`${nr} rectangle${nr === 1 ? '' : 's'}`);
+    showToast(parts.length ? `Imported ${parts.join(', ')}` : 'Imported (empty)');
+  }
 }
 
 function updateSquareCount() {
@@ -679,6 +684,34 @@ if (btnExport && exportDropdown) {
     exportDropdown.classList.toggle('open');
   });
   document.addEventListener('click', () => exportDropdown?.classList.remove('open'));
+}
+
+// Samples dropdown
+const samplesDropdown = document.getElementById('samples-dropdown');
+const btnSamples = document.getElementById('btn-samples');
+const samplesMenu = document.getElementById('samples-menu');
+if (btnSamples && samplesDropdown && samplesMenu) {
+  for (const preset of PRESETS) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.textContent = preset.name;
+    btn.dataset.presetId = preset.id;
+    samplesMenu.appendChild(btn);
+  }
+  btnSamples.addEventListener('click', (e) => {
+    e.stopPropagation();
+    samplesDropdown.classList.toggle('open');
+  });
+  samplesMenu.addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-preset-id]');
+    if (!btn) return;
+    const preset = PRESETS.find((p) => p.id === btn.dataset.presetId);
+    if (preset) {
+      applyImport({ polygons: preset.polygons, rectangles: [] }, `Loaded: ${preset.name}`);
+      samplesDropdown.classList.remove('open');
+    }
+  });
+  document.addEventListener('click', () => samplesDropdown?.classList.remove('open'));
 }
 
 const btnHelp = document.getElementById('btn-help');
