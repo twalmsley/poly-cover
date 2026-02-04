@@ -22,6 +22,7 @@ const btnClose = document.getElementById('btn-close');
 const btnNew = document.getElementById('btn-new');
 const btnRun = document.getElementById('btn-run');
 const btnClear = document.getElementById('btn-clear');
+const btnResetZoom = document.getElementById('btn-reset-zoom');
 const btnUndo = document.getElementById('btn-undo');
 const btnRedo = document.getElementById('btn-redo');
 const inputMinSize = document.getElementById('min-size');
@@ -182,6 +183,44 @@ function getPolygonListForArea() {
     closed = closed.concat([[...state.currentPolygon]]);
   }
   return closed;
+}
+
+/**
+ * World-space axis-aligned bounding box of all content (polygons + rectangles).
+ * @returns {{ minX: number, minY: number, maxX: number, maxY: number } | null}
+ */
+function getWorldBounds() {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  let hasAny = false;
+  for (const points of state.polygons) {
+    for (const p of points) {
+      minX = Math.min(minX, p.x);
+      minY = Math.min(minY, p.y);
+      maxX = Math.max(maxX, p.x);
+      maxY = Math.max(maxY, p.y);
+      hasAny = true;
+    }
+  }
+  if (state.currentPolygon && state.currentPolygon.length >= 3) {
+    for (const p of state.currentPolygon) {
+      minX = Math.min(minX, p.x);
+      minY = Math.min(minY, p.y);
+      maxX = Math.max(maxX, p.x);
+      maxY = Math.max(maxY, p.y);
+      hasAny = true;
+    }
+  }
+  for (const r of state.rectangles) {
+    const x = r.x ?? 0, y = r.y ?? 0;
+    const w = r.w ?? r.width ?? 0, h = r.h ?? r.height ?? 0;
+    minX = Math.min(minX, x);
+    minY = Math.min(minY, y);
+    maxX = Math.max(maxX, x + w);
+    maxY = Math.max(maxY, y + h);
+    hasAny = true;
+  }
+  if (!hasAny) return null;
+  return { minX, minY, maxX, maxY };
 }
 
 function updateSquareCount() {
@@ -668,6 +707,11 @@ document.addEventListener('keydown', (e) => {
     newPolygon();
     return;
   }
+  if (e.code === 'Home') {
+    e.preventDefault();
+    resetZoomView();
+    return;
+  }
 
   if ((e.code === 'Delete' || e.code === 'Backspace') && !state.coveringRunning) {
     const lastUndo = state.undoStack[state.undoStack.length - 1];
@@ -731,6 +775,14 @@ btnRun.addEventListener('click', () => {
 });
 
 btnClear.addEventListener('click', clearAll);
+
+function resetZoomView() {
+  const bounds = getWorldBounds();
+  canvasState.resetZoom(bounds);
+  draw();
+}
+
+if (btnResetZoom) btnResetZoom.addEventListener('click', resetZoomView);
 
 // Export dropdown
 const exportDropdown = document.getElementById('export-dropdown');

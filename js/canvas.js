@@ -70,6 +70,43 @@ export function makeCanvasState(canvas) {
     canvas.style.height = h + 'px';
   }
 
+  /**
+   * Reset zoom and pan. If bounds is provided and has finite size, fit content in 90% of canvas (centered).
+   * Otherwise reset to default view (scale 1, origin at center).
+   * @param {{ minX: number, minY: number, maxX: number, maxY: number } | null} bounds - World-space AABB or null
+   */
+  function resetZoom(bounds) {
+    const wrap = canvas.parentElement;
+    const w = wrap.clientWidth;
+    const h = wrap.clientHeight;
+    const minScale = 0.1;
+    const maxScale = 20;
+
+    if (
+      bounds &&
+      Number.isFinite(bounds.minX) &&
+      Number.isFinite(bounds.minY) &&
+      Number.isFinite(bounds.maxX) &&
+      Number.isFinite(bounds.maxY)
+    ) {
+      const bw = bounds.maxX - bounds.minX;
+      const bh = bounds.maxY - bounds.minY;
+      if (bw > 0 && bh > 0) {
+        const scaleX = (0.9 * w) / bw;
+        const scaleY = (0.9 * h) / bh;
+        scale = Math.max(minScale, Math.min(maxScale, Math.min(scaleX, scaleY)));
+        const centerX = (bounds.minX + bounds.maxX) / 2;
+        const centerY = (bounds.minY + bounds.maxY) / 2;
+        tx = w / 2 - centerX * scale;
+        ty = h / 2 - centerY * scale;
+        return;
+      }
+    }
+    scale = 1;
+    tx = w / 2;
+    ty = h / 2;
+  }
+
   return {
     get ctx() { return ctx; },
     get scale() { return scale; },
@@ -82,6 +119,7 @@ export function makeCanvasState(canvas) {
     handlePointerMove,
     handlePointerUp,
     resize,
+    resetZoom,
   };
 }
 
