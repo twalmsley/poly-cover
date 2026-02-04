@@ -24,6 +24,7 @@ const btnClear = document.getElementById('btn-clear');
 const btnUndo = document.getElementById('btn-undo');
 const btnRedo = document.getElementById('btn-redo');
 const inputMinSize = document.getElementById('min-size');
+const inputSnapToGrid = document.getElementById('snap-to-grid');
 const inputMaxK = document.getElementById('max-k');
 const inputMinK = document.getElementById('min-k');
 const inputSpeedPreset = document.getElementById('speed-preset');
@@ -193,7 +194,21 @@ function screenToWorld(clientX, clientY) {
   return canvasState.screenToWorld(clientX, clientY);
 }
 
+function snapToGrid(x, y, gridSize) {
+  const step = Math.max(1, gridSize);
+  return {
+    x: Math.round(x / step) * step,
+    y: Math.round(y / step) * step,
+  };
+}
+
 function addPoint(wx, wy) {
+  if (inputSnapToGrid?.checked) {
+    const minSize = Math.max(1, Math.min(500, parseInt(inputMinSize.value, 10) || 8));
+    const snapped = snapToGrid(wx, wy, minSize);
+    wx = snapped.x;
+    wy = snapped.y;
+  }
   if (!state.currentPolygon) state.currentPolygon = [];
   state.currentPolygon.push({ x: wx, y: wy });
   state.undoStack.push({ type: 'add_point', point: { x: wx, y: wy } });
@@ -696,6 +711,9 @@ function loadCoveringPrefs() {
     if (inputInstantRun && typeof prefs.instantRun === 'boolean') {
       inputInstantRun.checked = prefs.instantRun;
     }
+    if (inputSnapToGrid && typeof prefs.snapToGrid === 'boolean') {
+      inputSnapToGrid.checked = prefs.snapToGrid;
+    }
   } catch (_) {}
 }
 function saveCoveringPrefs() {
@@ -703,6 +721,7 @@ function saveCoveringPrefs() {
     const prefs = {
       speed: inputSpeedPreset?.value || 'normal',
       instantRun: inputInstantRun?.checked ?? false,
+      snapToGrid: inputSnapToGrid?.checked ?? false,
     };
     localStorage.setItem(COVERING_PREFS_KEY, JSON.stringify(prefs));
   } catch (_) {}
@@ -710,6 +729,7 @@ function saveCoveringPrefs() {
 loadCoveringPrefs();
 inputSpeedPreset?.addEventListener('change', saveCoveringPrefs);
 inputInstantRun?.addEventListener('change', saveCoveringPrefs);
+inputSnapToGrid?.addEventListener('change', saveCoveringPrefs);
 
 canvasState.resize();
 draw();
