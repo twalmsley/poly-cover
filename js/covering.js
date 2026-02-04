@@ -244,3 +244,25 @@ function signedArea(pts) {
   }
   return a / 2;
 }
+
+/** Area of one region: exterior ring area minus hole areas. Region may be { exterior, holes } or a single ring (points). */
+function regionArea(region) {
+  if (!region) return 0;
+  const exterior = region.exterior != null ? region.exterior : region;
+  const holes = Array.isArray(region) ? [] : (region.holes || []);
+  let a = Math.abs(signedArea(exterior));
+  for (const h of holes) {
+    a -= Math.abs(signedArea(h));
+  }
+  return Math.max(0, a);
+}
+
+/**
+ * Total area of the union of the given polygons (world square units).
+ * Uses the same union + per-ring signed area as the covering. Returns 0 if no polygons.
+ */
+export function getUnionArea(polygonList) {
+  const regions = unionPolygons(polygonList);
+  if (!regions || regions.length === 0) return 0;
+  return regions.reduce((sum, reg) => sum + regionArea(reg), 0);
+}
