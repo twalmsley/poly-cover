@@ -14,7 +14,7 @@ import {
   importFromJSON,
 } from './io.js';
 import { PRESETS } from './presets.js';
-import type { AppState, Point, Polygon, Rectangle, Bounds, ImportResult } from './types.js';
+import type { AppState, Point, Polygon, Rectangle, Bounds, ImportResult, CoveringShape } from './types.js';
 
 const canvas = document.getElementById('c') as HTMLCanvasElement;
 const wrap = document.getElementById('canvas-wrap') as HTMLElement;
@@ -26,6 +26,7 @@ const btnClear = document.getElementById('btn-clear') as HTMLButtonElement | nul
 const btnResetZoom = document.getElementById('btn-reset-zoom') as HTMLButtonElement | null;
 const btnUndo = document.getElementById('btn-undo') as HTMLButtonElement | null;
 const btnRedo = document.getElementById('btn-redo') as HTMLButtonElement | null;
+const inputCoveringShape = document.getElementById('covering-shape') as HTMLSelectElement | null;
 const inputMinSize = document.getElementById('min-size') as HTMLInputElement | null;
 const inputSnapToGrid = document.getElementById('snap-to-grid') as HTMLInputElement | null;
 const inputMaxK = document.getElementById('max-k') as HTMLInputElement | null;
@@ -214,9 +215,16 @@ function getWorldBounds(): Bounds | null {
   return { minX, minY, maxX, maxY };
 }
 
+function getCoveringShape(): CoveringShape {
+  const v = inputCoveringShape?.value;
+  return v === 'rectangles' ? 'rectangles' : 'squares';
+}
+
 function updateSquareCount(): void {
   if (squareCountEl) {
-    const sq = state.rectangles.length > 0 ? `Squares: ${state.rectangles.length}` : 'Squares: —';
+    const shape = getCoveringShape();
+    const label = shape === 'rectangles' ? 'Shapes' : 'Squares';
+    const sq = state.rectangles.length > 0 ? `${label}: ${state.rectangles.length}` : `${label}: —`;
     const iter = state.coveringRunning || state.rectangles.length > 0
       ? `Iterations: ${state.coveringIteration}`
       : 'Iterations: —';
@@ -241,7 +249,9 @@ function updateStats(): void {
 
   const paStr = polygonArea != null ? polygonArea.toFixed(1) + ' units²' : '—';
   const caStr = coveredArea != null ? coveredArea.toFixed(1) + ' units²' : '—';
-  const effStr = efficiency != null ? efficiency.toFixed(1) + ' units²/square' : '—';
+  const shape = getCoveringShape();
+  const unitLabel = shape === 'rectangles' ? 'units²/shape' : 'units²/square';
+  const effStr = efficiency != null ? efficiency.toFixed(1) + ' ' + unitLabel : '—';
   statsAreaEl.textContent = `Polygon area: ${paStr}  ·  Covered area: ${caStr}  ·  Efficiency: ${effStr}  ·  ${coverageStr}`;
 }
 
@@ -511,8 +521,9 @@ function startCovering(): void {
   const minSize = Math.max(1, Math.min(500, parseInt(inputMinSize?.value ?? '8', 10) || 8));
   const maxK = inputMaxK ? Math.max(2, Math.min(1024, parseInt(inputMaxK.value, 10) || 8)) : 8;
   const minK = inputMinK ? Math.max(2, Math.min(1024, parseInt(inputMinK.value, 10) || 2)) : 2;
+  const shape = getCoveringShape();
 
-  const gen = runCovering(closed, { minSize, maxK, minK });
+  const gen = runCovering(closed, { minSize, maxK, minK, shape });
   const instant = inputInstantRun?.checked ?? false;
   const delay = getStepDelayMs();
 
@@ -950,7 +961,7 @@ function loadCoveringPrefs(): void {
   try {
     const raw = localStorage.getItem(COVERING_PREFS_KEY);
     if (!raw) return;
-    const prefs = JSON.parse(raw) as { speed?: string; instantRun?: boolean; snapToGrid?: boolean };
+    const prefs = JSON.parse(raw) as { speed?: string; instantRun?: boolean; snapToGrid?: boolean; shape?: CoveringShape };
     if (inputSpeedPreset && prefs.speed && SPEED_PRESET_MS[prefs.speed] != null) {
       inputSpeedPreset.value = prefs.speed;
     }
@@ -959,6 +970,9 @@ function loadCoveringPrefs(): void {
     }
     if (inputSnapToGrid && typeof prefs.snapToGrid === 'boolean') {
       inputSnapToGrid.checked = prefs.snapToGrid;
+    }
+    if (inputCoveringShape && (prefs.shape === 'squares' || prefs.shape === 'rectangles')) {
+      inputCoveringShape.value = prefs.shape;
     }
   } catch {
     // ignore
@@ -970,6 +984,7 @@ function saveCoveringPrefs(): void {
       speed: inputSpeedPreset?.value || 'normal',
       instantRun: inputInstantRun?.checked ?? false,
       snapToGrid: inputSnapToGrid?.checked ?? false,
+      shape: getCoveringShape(),
     };
     localStorage.setItem(COVERING_PREFS_KEY, JSON.stringify(prefs));
   } catch {
@@ -980,6 +995,7 @@ loadCoveringPrefs();
 inputSpeedPreset?.addEventListener('change', saveCoveringPrefs);
 inputInstantRun?.addEventListener('change', saveCoveringPrefs);
 inputSnapToGrid?.addEventListener('change', saveCoveringPrefs);
+inputCoveringShape?.addEventListener('change', saveCoveringPrefs);
 
 canvasState.resize();
 draw();

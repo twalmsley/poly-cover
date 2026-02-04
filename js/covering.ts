@@ -5,7 +5,7 @@
 
 import * as martinez from 'martinez-polygon-clipping';
 import { rectInsideRegion, bbox } from './drawing.js';
-import type { Point, Polygon, Rectangle, Region, CoveringStep } from './types.js';
+import type { Point, Polygon, Rectangle, Region, CoveringStep, CoveringShape } from './types.js';
 
 const DEFAULT_MAX_K = 8;
 
@@ -40,6 +40,142 @@ function fillGrid(region: Polygon | Region, minSize: number): Square[] {
     }
   }
   return squares;
+}
+
+/** Cell in grid: top-left (x, y) with fixed minSize. */
+function cellKey(x: number, y: number): string {
+  return `${x},${y}`;
+}
+
+/**
+ * Fill region with grid cells (minSize×minSize); returns list of { x, y } for each cell fully inside.
+ */
+function fillGridCells(region: Polygon | Region, minSize: number): { x: number; y: number }[] {
+  const bb = bbox(region);
+  const cells: { x: number; y: number }[] = [];
+  for (let i = 0; i * minSize < bb.w; i++) {
+    for (let j = 0; j * minSize < bb.h; j++) {
+      const x = bb.x + i * minSize;
+      const y = bb.y + j * minSize;
+      if (rectInsideRegion(x, y, minSize, minSize, region)) {
+        cells.push({ x, y });
+      }
+    }
+  }
+  return cells;
+}
+
+/** Check if a cols×rows block of cells exists with top-left (x, y) and given minSize. */
+function hasRectBlock(
+  cellSet: Set<string>,
+  x: number,
+  y: number,
+  minSize: number,
+  cols: number,
+  rows: number
+): boolean {
+  for (let di = 0; di < cols; di++) {
+    for (let dj = 0; dj < rows; dj++) {
+      if (!cellSet.has(cellKey(x + di * minSize, y + dj * minSize))) return false;
+    }
+  }
+  return true;
+}
+
+/** (cols, rows) pairs in descending order of area for rectangle merge (includes 1×k and k×1). */
+function* rectMergeSizes(maxK: number, minK: number): Generator<[number, number]> {
+  const pairs: [number, number][] = [];
+  for (let cols = 1; cols <= maxK; cols++) {
+    for (let rows = 1; rows <= maxK; rows++) {
+      if (cols * rows < 2) continue; // need at least 2 cells to merge
+      if (cols < minK && rows < minK) continue;
+      pairs.push([cols, rows]);
+    }
+  }
+  pairs.sort((a, b) => b[0] * b[1] - a[0] * a[1]);
+  for (const p of pairs) yield p;
+}
+
+interface RectMergeResult {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  keysToRemove: string[];
+}
+
+/**
+ * Find one rectangular block to merge: try (cols, rows) by descending area; return block and keys to remove, or null.
+ */
+function findRectMerge(
+  cellSet: Set<string>,
+  cells: { x: number; y: number }[],
+  minSize: number,
+  maxK: number,
+  minK: number,
+  regions: Region[],
+  excludeKeys: Set<string> | null
+): RectMergeResult | null {
+  for (const [cols, rows] of rectMergeSizes(maxK, minK)) {
+    const w = cols * minSize;
+    const h = rows * minSize;
+    for (const c of cells) {
+      const { x, y } = c;
+      if (excludeKeys && excludeKeys.has(cellKey(x, y))) continue;
+      if (!hasRectBlock(cellSet, x, y, minSize, cols, rows)) continue;
+      const keysToRemove: string[] = [];
+      for (let di = 0; di < cols; di++) {
+        for (let dj = 0; dj < rows; dj++) {
+          keysToRemove.push(cellKey(x + di * minSize, y + dj * minSize));
+        }
+      }
+      const insideSomeRegion = regions.some((reg) => rectInsideRegion(x, y, w, h, reg));
+      if (insideSomeRegion) {
+        return { x, y, w, h, keysToRemove };
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Run rectangle covering: grid fill then merge rectangular blocks (any w×h up to maxK×maxK).
+ */
+function* runCoveringRectangles(
+  regions: Region[],
+  minSize: number,
+  maxK: number,
+  minK: number
+): Generator<CoveringStep> {
+  let cells: { x: number; y: number }[] = [];
+  for (const reg of regions) {
+    cells = cells.concat(fillGridCells(reg, minSize));
+  }
+  const cellSet = new Set(cells.map((c) => cellKey(c.x, c.y)));
+  const merged: Rectangle[] = [];
+  const capK = Math.max(2, Math.min(1024, Math.floor(maxK)));
+  const capMinK = Math.max(2, Math.min(capK, Math.floor(minK)));
+  let iteration = 0;
+
+  function toRectangles(): Rectangle[] {
+    const remaining = cells.map((c) => ({ x: c.x, y: c.y, w: minSize, h: minSize }));
+    return [...merged, ...remaining];
+  }
+
+  yield { rectangles: toRectangles(), remaining: [], iteration };
+
+  while (true) {
+    const merge = findRectMerge(cellSet, cells, minSize, capK, capMinK, regions, null);
+    if (!merge) break;
+    const { x, y, w, h, keysToRemove } = merge;
+    for (const key of keysToRemove) cellSet.delete(key);
+    merged.push({ x, y, w, h });
+    cells = cells.filter((c) => cellSet.has(cellKey(c.x, c.y)));
+    iteration++;
+    yield { rectangles: toRectangles(), remaining: [], iteration };
+  }
+
+  yield { rectangles: toRectangles(), remaining: [], iteration };
 }
 
 /**
@@ -113,18 +249,26 @@ export interface RunCoveringOptions {
   minSize?: number;
   maxK?: number;
   minK?: number;
+  /** Shape strategy: 'squares' (k×k merge only) or 'rectangles' (any w×h merge). Default 'squares'. */
+  shape?: CoveringShape;
 }
 
 /**
  * Run grid-fill + merge covering: yields { rectangles, remaining, iteration } for animation.
+ * When shape is 'rectangles', merges any w×h blocks; when 'squares', merges only k×k blocks.
  */
 export function* runCovering(polygons: Polygon[], options: RunCoveringOptions = {}): Generator<CoveringStep> {
-  const { minSize = 8, maxK = DEFAULT_MAX_K, minK = 2 } = options;
+  const { minSize = 8, maxK = DEFAULT_MAX_K, minK = 2, shape = 'squares' } = options;
   const capK = Math.max(2, Math.min(1024, Math.floor(maxK)));
   const capMinK = Math.max(2, Math.min(capK, Math.floor(minK)));
   const regions = unionPolygons(polygons);
   if (!regions || regions.length === 0) {
     yield { rectangles: [], remaining: [], iteration: 0 };
+    return;
+  }
+
+  if (shape === 'rectangles') {
+    yield* runCoveringRectangles(regions, minSize, capK, capMinK);
     return;
   }
 

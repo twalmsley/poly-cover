@@ -78,6 +78,9 @@ export interface CoveringStep {
   iteration: number;
 }
 
+/** Covering shape strategy: squares (k×k only) or rectangles (any w×h merge). */
+export type CoveringShape = 'squares' | 'rectangles';
+
 /** Preset: id, name, polygons. */
 export interface Preset {
   id: string;
