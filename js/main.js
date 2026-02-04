@@ -544,19 +544,90 @@ wrap.addEventListener('dblclick', (e) => {
   }
 });
 
+function isFocusInInput() {
+  const tag = document.activeElement?.tagName?.toLowerCase();
+  return tag === 'input' || tag === 'textarea' || tag === 'select';
+}
+
 document.addEventListener('keydown', (e) => {
   if (e.code === 'Space') {
     state.spaceDown = true;
     wrap.classList.add('pan');
     return;
   }
-  if ((e.code === 'Delete' || e.code === 'Backspace') && !state.coveringRunning && state.selectedPolygonIndex != null) {
-    const tag = document.activeElement?.tagName?.toLowerCase();
-    if (tag !== 'input' && tag !== 'textarea') {
-      e.preventDefault();
-      deleteSelectedPolygon();
-    }
+
+  if (isFocusInInput()) {
+    if (e.code === 'KeyD' || e.code === 'KeyR' || e.code === 'KeyN' || e.code === 'Escape') return;
+    if (e.code === 'Backspace' || e.code === 'Delete') return;
+    if (e.key === 'z' && (e.metaKey || e.ctrlKey)) return;
   }
+
+  const helpPanel = document.getElementById('help-panel');
+  const helpOpen = helpPanel?.classList?.contains('open');
+
+  if (e.code === 'Escape') {
+    if (helpOpen) {
+      e.preventDefault();
+      helpPanel.classList.remove('open');
+      return;
+    }
+    if (state.drawMode && state.currentPolygon?.length > 0) {
+      e.preventDefault();
+      state.currentPolygon = [];
+      state.drawMode = false;
+      state.editMode = false;
+      if (btnDraw) btnDraw.classList.remove('active');
+      state.undoStack = [];
+      state.redoStack = [];
+      draw();
+      updateUndoRedoButtons();
+      updateDeleteEditButtons();
+      return;
+    }
+    return;
+  }
+
+  if (e.code === 'KeyD') {
+    e.preventDefault();
+    state.drawMode = !state.drawMode;
+    btnDraw?.classList.toggle('active', state.drawMode);
+    updateUndoRedoButtons();
+    return;
+  }
+  if (e.code === 'KeyR') {
+    e.preventDefault();
+    if (!state.coveringRunning) startCovering();
+    else if (state.coveringPaused) resumeCovering();
+    else pauseCovering();
+    return;
+  }
+  if (e.code === 'KeyN') {
+    e.preventDefault();
+    newPolygon();
+    return;
+  }
+
+  if ((e.code === 'Delete' || e.code === 'Backspace') && !state.coveringRunning) {
+    const lastUndo = state.undoStack[state.undoStack.length - 1];
+    if (
+      state.drawMode &&
+      state.currentPolygon?.length > 0 &&
+      lastUndo?.type === 'add_point'
+    ) {
+      e.preventDefault();
+      undo();
+      return;
+    }
+    if (state.selectedPolygonIndex != null) {
+      const tag = document.activeElement?.tagName?.toLowerCase();
+      if (tag !== 'input' && tag !== 'textarea') {
+        e.preventDefault();
+        deleteSelectedPolygon();
+      }
+    }
+    return;
+  }
+
   if (e.key === 'z' && (e.metaKey || e.ctrlKey) && !state.coveringRunning) {
     e.preventDefault();
     if (e.shiftKey) redo();
@@ -608,6 +679,17 @@ if (btnExport && exportDropdown) {
     exportDropdown.classList.toggle('open');
   });
   document.addEventListener('click', () => exportDropdown?.classList.remove('open'));
+}
+
+const btnHelp = document.getElementById('btn-help');
+const helpPanelEl = document.getElementById('help-panel');
+if (btnHelp && helpPanelEl) {
+  btnHelp.addEventListener('click', (e) => {
+    e.stopPropagation();
+    helpPanelEl.classList.toggle('open');
+  });
+  helpPanelEl.addEventListener('click', (e) => e.stopPropagation());
+  document.addEventListener('click', () => helpPanelEl?.classList.remove('open'));
 }
 function doExport(getContent, filename, mimeType, description) {
   const content = getContent();
