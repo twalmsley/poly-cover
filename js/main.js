@@ -3,7 +3,7 @@
  */
 
 import { makeCanvasState, drawPolygon, drawRect, drawRemaining } from './canvas.js';
-import { runCovering } from './covering.js';
+import { runCovering, getUnionArea } from './covering.js';
 import { hitTestPolygonEdge, pointInPolygon } from './drawing.js';
 import {
   exportPolygonsJSON,
@@ -31,6 +31,7 @@ const inputMinK = document.getElementById('min-k');
 const inputSpeedPreset = document.getElementById('speed-preset');
 const inputInstantRun = document.getElementById('instant-run');
 const squareCountEl = document.getElementById('square-count');
+const statsAreaEl = document.getElementById('stats-area');
 
 const canvasState = makeCanvasState(canvas);
 
@@ -171,6 +172,18 @@ function applyImport(result, toastMessage = null) {
   }
 }
 
+function getCoveredArea(rectangles) {
+  return (rectangles || []).reduce((sum, r) => sum + r.w * r.h, 0);
+}
+
+function getPolygonListForArea() {
+  let closed = state.polygons.length > 0 ? [...state.polygons] : [];
+  if (state.currentPolygon && state.currentPolygon.length >= 3) {
+    closed = closed.concat([[...state.currentPolygon]]);
+  }
+  return closed;
+}
+
 function updateSquareCount() {
   if (squareCountEl) {
     const sq = state.rectangles.length > 0 ? `Squares: ${state.rectangles.length}` : 'Squares: —';
@@ -181,8 +194,23 @@ function updateSquareCount() {
   }
 }
 
+function updateStats() {
+  if (!statsAreaEl) return;
+  const polygonList = getPolygonListForArea();
+  const polygonArea = polygonList.length > 0 ? getUnionArea(polygonList) : null;
+  const coveredArea = state.rectangles.length > 0 ? getCoveredArea(state.rectangles) : null;
+  const n = state.rectangles.length;
+  const efficiency = n > 0 && polygonArea != null ? polygonArea / n : null;
+
+  const paStr = polygonArea != null ? polygonArea.toFixed(1) + ' units²' : '—';
+  const caStr = coveredArea != null ? coveredArea.toFixed(1) + ' units²' : '—';
+  const effStr = efficiency != null ? efficiency.toFixed(1) + ' units²/square' : '—';
+  statsAreaEl.textContent = `Polygon area: ${paStr}  ·  Covered area: ${caStr}  ·  Efficiency: ${effStr}`;
+}
+
 function draw() {
   updateSquareCount();
+  updateStats();
   const ctx = canvasState.ctx;
   ctx.save();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
