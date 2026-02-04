@@ -64,6 +64,24 @@
       box-shadow: 0 4px 12px rgba(0,0,0,0.3);
     }
     #toolbar .dropdown.open .dropdown-content { display: block; }
+    #help-panel {
+      display: none;
+      position: absolute;
+      top: 100%;
+      right: 0;
+      margin-top: 4px;
+      background: #16213e;
+      border: 1px solid #444;
+      border-radius: 4px;
+      min-width: 200px;
+      padding: 10px 12px;
+      z-index: 20;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      font-size: 13px;
+      line-height: 1.6;
+    }
+    #help-panel.open { display: block; }
+    #help-panel kbd { background: #0f0f1a; padding: 2px 6px; border-radius: 3px; font-family: inherit; }
     #toolbar .dropdown-content button {
       display: block;
       width: 100%;
@@ -110,14 +128,14 @@
 </head>
 <body>
   <div id="toolbar">
-    <button type="button" id="btn-draw">Draw</button>
-    <button type="button" id="btn-close">Close polygon</button>
+    <button type="button" id="btn-draw" title="Draw (D)">Draw</button>
+    <button type="button" id="btn-close" title="Close polygon">Close polygon</button>
     <button type="button" id="btn-undo" title="Undo last vertex or close (Ctrl+Z / ⌘Z)">Undo</button>
     <button type="button" id="btn-redo" title="Redo (Ctrl+Shift+Z / ⌘⇧Z)">Redo</button>
-    <button type="button" id="btn-new">New polygon</button>
+    <button type="button" id="btn-new" title="New polygon (N)">New polygon</button>
     <button type="button" id="btn-delete" title="Delete selected polygon (Delete / Backspace)">Delete</button>
     <button type="button" id="btn-edit" title="Edit selected polygon (or double-click)">Edit</button>
-    <button type="button" id="btn-run">Run covering</button>
+    <button type="button" id="btn-run" title="Run covering (R)">Run covering</button>
     <label>Min square size: <input type="number" id="min-size" min="1" max="200" value="4" /></label>
     <label><input type="checkbox" id="snap-to-grid" title="Snap new vertices to grid (step = min square size)" /> Snap to grid</label>
     <label>Max k: <input type="number" id="max-k" min="2" max="1024" value="128" title="Max k×k merge (tried by halving: k, k/2, k/4, …)" /></label>
@@ -139,6 +157,20 @@
     <button type="button" id="btn-import-paste" title="Paste JSON from clipboard">Paste</button>
     <input type="file" id="import-file" accept=".json,application/json" style="display: none" />
     <button type="button" id="btn-clear">Clear all</button>
+    <div class="dropdown" id="help-dropdown">
+      <button type="button" id="btn-help" title="Keyboard shortcuts">?</button>
+      <div id="help-panel" class="dropdown-content" role="dialog" aria-label="Keyboard shortcuts">
+        <p style="margin: 0 0 8px 0; font-weight: 600;">Shortcuts</p>
+        <p style="margin: 0 0 4px 0;"><kbd>D</kbd> Toggle draw mode</p>
+        <p style="margin: 0 0 4px 0;"><kbd>R</kbd> Run covering / Pause / Resume</p>
+        <p style="margin: 0 0 4px 0;"><kbd>N</kbd> New polygon</p>
+        <p style="margin: 0 0 4px 0;"><kbd>Escape</kbd> Cancel draw / close polygon</p>
+        <p style="margin: 0 0 4px 0;"><kbd>Backspace</kbd> Delete last vertex (when drawing)</p>
+        <p style="margin: 0 0 4px 0;"><kbd>Delete</kbd> / <kbd>Backspace</kbd> Delete selected polygon</p>
+        <p style="margin: 0 0 4px 0;"><kbd>Ctrl+Z</kbd> / <kbd>Ctrl+Shift+Z</kbd> Undo / Redo</p>
+        <p style="margin: 0;"><kbd>Space</kbd> Pan</p>
+      </div>
+    </div>
   </div>
   <div id="toast" aria-live="polite"></div>
   <div id="canvas-wrap">
