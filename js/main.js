@@ -459,20 +459,35 @@ function redo() {
   updateDeleteEditButtons();
 }
 
+const RUN_ICONS = {
+  play: '<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>',
+  pause: '<svg viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>',
+  computing: '<svg viewBox="0 0 24 24" class="spin"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46A7.93 7.93 0 0020 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74A7.93 7.93 0 004 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/></svg>',
+};
+
 function updateRunButton() {
   if (!btnRun) return;
+  const iconSlot = btnRun.querySelector('svg');
   const instant = inputInstantRun?.checked ?? false;
   if (!state.coveringRunning) {
-    btnRun.textContent = 'Run covering';
+    if (iconSlot) iconSlot.outerHTML = RUN_ICONS.play;
+    btnRun.title = 'Run covering (R)';
+    btnRun.setAttribute('aria-label', 'Run covering');
     btnRun.disabled = false;
   } else if (instant) {
-    btnRun.textContent = 'Computing…';
+    if (iconSlot) iconSlot.outerHTML = RUN_ICONS.computing;
+    btnRun.title = 'Computing…';
+    btnRun.setAttribute('aria-label', 'Computing');
     btnRun.disabled = true;
   } else if (state.coveringPaused) {
-    btnRun.textContent = 'Resume';
+    if (iconSlot) iconSlot.outerHTML = RUN_ICONS.play;
+    btnRun.title = 'Resume (R)';
+    btnRun.setAttribute('aria-label', 'Resume covering');
     btnRun.disabled = false;
   } else {
-    btnRun.textContent = 'Pause';
+    if (iconSlot) iconSlot.outerHTML = RUN_ICONS.pause;
+    btnRun.title = 'Pause (R)';
+    btnRun.setAttribute('aria-label', 'Pause covering');
     btnRun.disabled = false;
   }
 }
@@ -779,21 +794,16 @@ btnClear.addEventListener('click', clearAll);
 function resetZoomView() {
   const bounds = getWorldBounds();
   const wrap = document.getElementById('canvas-wrap');
-  const toolbar = document.getElementById('toolbar');
+  // Wrap is sized between header and footer, so its rect is the visible canvas area.
   let viewport;
-  if (wrap && toolbar) {
-    const wrapRect = wrap.getBoundingClientRect();
-    const toolRect = toolbar.getBoundingClientRect();
-    const overlapTop = Math.max(0, toolRect.bottom - wrapRect.top);
-    if (overlapTop > 0 && overlapTop < wrapRect.height) {
-      const visibleHeight = wrapRect.height - overlapTop;
-      viewport = {
-        width: wrapRect.width,
-        height: visibleHeight,
-        centerX: wrapRect.width / 2,
-        centerY: overlapTop + visibleHeight / 2,
-      };
-    }
+  if (wrap) {
+    const rect = wrap.getBoundingClientRect();
+    viewport = {
+      width: rect.width,
+      height: rect.height,
+      centerX: rect.width / 2,
+      centerY: rect.height / 2,
+    };
   }
   canvasState.resetZoom(bounds, viewport);
   draw();
