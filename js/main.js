@@ -4,7 +4,7 @@
 
 import { makeCanvasState, drawPolygon, drawRect, drawRemaining } from './canvas.js';
 import { runCovering } from './covering.js';
-import { hitTestPolygonEdge } from './drawing.js';
+import { hitTestPolygonEdge, pointInPolygon } from './drawing.js';
 
 const canvas = document.getElementById('c');
 const wrap = document.getElementById('canvas-wrap');
@@ -29,8 +29,10 @@ const state = {
   remaining: [],
   coveringIteration: 0,
   drawMode: false,
+  editMode: false,
   coveringRunning: false,
   spaceDown: false,
+  selectedPolygonIndex: null,
   undoStack: [],
   redoStack: [],
 };
@@ -68,8 +70,14 @@ function draw() {
     drawRect(ctx, rect);
   }
 
-  for (const points of state.polygons) {
-    drawPolygon(ctx, points, { fill: 'rgba(233, 69, 96, 0.08)', stroke: '#e94560', lineWidth: 2 });
+  for (let i = 0; i < state.polygons.length; i++) {
+    const points = state.polygons[i];
+    const selected = i === state.selectedPolygonIndex;
+    drawPolygon(ctx, points, {
+      fill: selected ? 'rgba(78, 205, 196, 0.15)' : 'rgba(233, 69, 96, 0.08)',
+      stroke: selected ? '#4ecdc4' : '#e94560',
+      lineWidth: selected ? 3 : 2,
+    });
   }
 
   if (state.currentPolygon && state.currentPolygon.length > 0) {
@@ -99,12 +107,19 @@ function addPoint(wx, wy) {
 
 function closePolygon() {
   if (state.currentPolygon && state.currentPolygon.length >= 3) {
-    state.undoStack.push({ type: 'close_polygon' });
-    state.redoStack = [];
-    state.polygons.push([...state.currentPolygon]);
-    state.currentPolygon = null;
+    if (state.editMode) {
+      state.polygons.push([...state.currentPolygon]);
+      state.currentPolygon = null;
+      state.editMode = false;
+    } else {
+      state.undoStack.push({ type: 'close_polygon' });
+      state.redoStack = [];
+      state.polygons.push([...state.currentPolygon]);
+      state.currentPolygon = null;
+    }
     draw();
     updateUndoRedoButtons();
+    updateDeleteEditButtons();
   }
 }
 
@@ -113,15 +128,20 @@ function newPolygon() {
     state.polygons.push([...state.currentPolygon]);
   }
   state.currentPolygon = [];
+  state.editMode = false;
+  state.selectedPolygonIndex = null;
   state.undoStack = [];
   state.redoStack = [];
   draw();
   updateUndoRedoButtons();
+  updateDeleteEditButtons();
 }
 
 function clearAll() {
   state.polygons = [];
   state.currentPolygon = null;
+  state.editMode = false;
+  state.selectedPolygonIndex = null;
   state.rectangles = [];
   state.remaining = [];
   state.coveringIteration = 0;
@@ -130,11 +150,46 @@ function clearAll() {
   state.redoStack = [];
   draw();
   updateUndoRedoButtons();
+  updateDeleteEditButtons();
+}
+
+function deleteSelectedPolygon() {
+  if (state.coveringRunning || state.selectedPolygonIndex == null) return;
+  const index = state.selectedPolygonIndex;
+  const points = state.polygons[index];
+  state.undoStack.push({ type: 'delete_polygon', index, points: [...points] });
+  state.redoStack = [];
+  state.polygons.splice(index, 1);
+  state.selectedPolygonIndex = null;
+  draw();
+  updateUndoRedoButtons();
+  updateDeleteEditButtons();
+}
+
+function startEditPolygon() {
+  if (state.coveringRunning || state.selectedPolygonIndex == null) return;
+  const index = state.selectedPolygonIndex;
+  state.currentPolygon = [...state.polygons[index].map((p) => ({ x: p.x, y: p.y }))];
+  state.polygons.splice(index, 1);
+  state.selectedPolygonIndex = null;
+  state.editMode = true;
+  state.drawMode = true;
+  if (btnDraw) btnDraw.classList.add('active');
+  draw();
+  updateDeleteEditButtons();
 }
 
 function updateUndoRedoButtons() {
   if (btnUndo) btnUndo.disabled = state.undoStack.length === 0 || state.coveringRunning;
   if (btnRedo) btnRedo.disabled = state.redoStack.length === 0 || state.coveringRunning;
+}
+
+function updateDeleteEditButtons() {
+  const btnDelete = document.getElementById('btn-delete');
+  const btnEdit = document.getElementById('btn-edit');
+  const disabled = state.coveringRunning || state.selectedPolygonIndex == null;
+  if (btnDelete) btnDelete.disabled = disabled;
+  if (btnEdit) btnEdit.disabled = disabled;
 }
 
 function undo() {
@@ -150,9 +205,13 @@ function undo() {
     if (state.polygons.length > 0) {
       state.currentPolygon = [...state.polygons.pop()];
     }
+  } else if (entry.type === 'delete_polygon') {
+    state.polygons.splice(entry.index, 0, entry.points);
+    state.selectedPolygonIndex = entry.index;
   }
   draw();
   updateUndoRedoButtons();
+  updateDeleteEditButtons();
 }
 
 function redo() {
@@ -167,9 +226,13 @@ function redo() {
       state.polygons.push([...state.currentPolygon]);
       state.currentPolygon = null;
     }
+  } else if (entry.type === 'delete_polygon') {
+    state.polygons.splice(entry.index, 1);
+    state.selectedPolygonIndex = null;
   }
   draw();
   updateUndoRedoButtons();
+  updateDeleteEditButtons();
 }
 
 function startCovering() {
@@ -196,6 +259,7 @@ function startCovering() {
     if (done || !state.coveringRunning) {
       state.coveringRunning = false;
       draw();
+      updateDeleteEditButtons();
       return;
     }
     state.rectangles = value.rectangles;
@@ -211,6 +275,13 @@ wrap.addEventListener('wheel', (e) => {
   if (canvasState.handleWheel(e)) e.preventDefault();
 }, { passive: false });
 
+function hitTestPolygons(wx, wy) {
+  for (let i = state.polygons.length - 1; i >= 0; i--) {
+    if (pointInPolygon(wx, wy, state.polygons[i])) return i;
+  }
+  return null;
+}
+
 wrap.addEventListener('mousedown', (e) => {
   if (e.button !== 0) return;
   const wx = screenToWorld(e.clientX, e.clientY);
@@ -224,6 +295,12 @@ wrap.addEventListener('mousedown', (e) => {
     } else {
       addPoint(wx.x, wx.y);
     }
+    return;
+  }
+  if (!state.coveringRunning) {
+    state.selectedPolygonIndex = hitTestPolygons(wx.x, wx.y);
+    updateDeleteEditButtons();
+    draw();
     return;
   }
   canvasState.handlePointerDown(e.clientX, e.clientY);
@@ -249,9 +326,15 @@ wrap.addEventListener('mouseleave', () => {
 });
 
 wrap.addEventListener('dblclick', (e) => {
-  if (e.button === 0 && state.drawMode && state.currentPolygon && state.currentPolygon.length >= 3) {
+  if (e.button !== 0) return;
+  if (state.currentPolygon && state.currentPolygon.length >= 3) {
     e.preventDefault();
     closePolygon();
+    return;
+  }
+  if (state.selectedPolygonIndex != null && !state.coveringRunning) {
+    e.preventDefault();
+    startEditPolygon();
   }
 });
 
@@ -261,7 +344,14 @@ document.addEventListener('keydown', (e) => {
     wrap.classList.add('pan');
     return;
   }
-  if (e.key === 'z' && (e.metaKey || e.ctrlKey) && state.drawMode && !state.coveringRunning) {
+  if ((e.code === 'Delete' || e.code === 'Backspace') && !state.coveringRunning && state.selectedPolygonIndex != null) {
+    const tag = document.activeElement?.tagName?.toLowerCase();
+    if (tag !== 'input' && tag !== 'textarea') {
+      e.preventDefault();
+      deleteSelectedPolygon();
+    }
+  }
+  if (e.key === 'z' && (e.metaKey || e.ctrlKey) && !state.coveringRunning) {
     e.preventDefault();
     if (e.shiftKey) redo();
     else undo();
@@ -286,6 +376,10 @@ btnClose.addEventListener('click', closePolygon);
 btnUndo.addEventListener('click', undo);
 btnRedo.addEventListener('click', redo);
 btnNew.addEventListener('click', newPolygon);
+const btnDelete = document.getElementById('btn-delete');
+const btnEdit = document.getElementById('btn-edit');
+if (btnDelete) btnDelete.addEventListener('click', deleteSelectedPolygon);
+if (btnEdit) btnEdit.addEventListener('click', startEditPolygon);
 
 btnRun.addEventListener('click', () => {
   if (state.coveringRunning) return;
@@ -302,3 +396,4 @@ window.addEventListener('resize', () => {
 canvasState.resize();
 draw();
 updateUndoRedoButtons();
+updateDeleteEditButtons();
