@@ -39,11 +39,15 @@ const state = {
   drawMode: false,
   editMode: false,
   coveringRunning: false,
+  coveringPaused: false,
   spaceDown: false,
   selectedPolygonIndex: null,
   undoStack: [],
   redoStack: [],
 };
+
+let coveringTimeoutId = null;
+let coveringStep = null;
 
 const CLOSE_HIT_THRESHOLD = 12;
 
@@ -218,6 +222,11 @@ function newPolygon() {
 }
 
 function clearAll() {
+  if (coveringTimeoutId != null) {
+    clearTimeout(coveringTimeoutId);
+    coveringTimeoutId = null;
+  }
+  coveringStep = null;
   state.polygons = [];
   state.currentPolygon = null;
   state.editMode = false;
@@ -226,9 +235,11 @@ function clearAll() {
   state.remaining = [];
   state.coveringIteration = 0;
   state.coveringRunning = false;
+  state.coveringPaused = false;
   state.undoStack = [];
   state.redoStack = [];
   draw();
+  updateRunButton();
   updateUndoRedoButtons();
   updateDeleteEditButtons();
 }
@@ -315,6 +326,17 @@ function redo() {
   updateDeleteEditButtons();
 }
 
+function updateRunButton() {
+  if (!btnRun) return;
+  if (!state.coveringRunning) {
+    btnRun.textContent = 'Run covering';
+  } else if (state.coveringPaused) {
+    btnRun.textContent = 'Resume';
+  } else {
+    btnRun.textContent = 'Pause';
+  }
+}
+
 function startCovering() {
   let closed = state.polygons.length > 0 ? [...state.polygons] : [];
   if (state.currentPolygon && state.currentPolygon.length >= 3) {
@@ -323,9 +345,12 @@ function startCovering() {
   if (closed.length === 0) return;
 
   state.coveringRunning = true;
+  state.coveringPaused = false;
   state.rectangles = [];
   state.remaining = [];
   state.coveringIteration = 0;
+  coveringTimeoutId = null;
+  coveringStep = null;
 
   const minSize = Math.max(1, Math.min(500, parseInt(inputMinSize.value, 10) || 8));
   const maxK = inputMaxK ? Math.max(2, Math.min(1024, parseInt(inputMaxK.value, 10) || 8)) : 8;
@@ -335,10 +360,16 @@ function startCovering() {
   const delay = 80;
 
   function step() {
+    if (state.coveringPaused) return;
     const { value, done } = gen.next();
     if (done || !state.coveringRunning) {
       state.coveringRunning = false;
+      state.coveringPaused = false;
+      coveringTimeoutId = null;
+      coveringStep = null;
       draw();
+      updateRunButton();
+      updateUndoRedoButtons();
       updateDeleteEditButtons();
       return;
     }
@@ -346,9 +377,30 @@ function startCovering() {
     state.remaining = value.remaining;
     state.coveringIteration = value.iteration ?? state.coveringIteration;
     draw();
-    setTimeout(step, delay);
+    if (!state.coveringPaused) {
+      coveringTimeoutId = setTimeout(step, delay);
+    }
   }
+  coveringStep = step;
+  updateRunButton();
   step();
+}
+
+function pauseCovering() {
+  if (!state.coveringRunning || state.coveringPaused) return;
+  if (coveringTimeoutId != null) {
+    clearTimeout(coveringTimeoutId);
+    coveringTimeoutId = null;
+  }
+  state.coveringPaused = true;
+  updateRunButton();
+}
+
+function resumeCovering() {
+  if (!state.coveringRunning || !state.coveringPaused) return;
+  state.coveringPaused = false;
+  updateRunButton();
+  if (coveringStep) coveringStep();
 }
 
 wrap.addEventListener('wheel', (e) => {
@@ -462,8 +514,13 @@ if (btnDelete) btnDelete.addEventListener('click', deleteSelectedPolygon);
 if (btnEdit) btnEdit.addEventListener('click', startEditPolygon);
 
 btnRun.addEventListener('click', () => {
-  if (state.coveringRunning) return;
-  startCovering();
+  if (!state.coveringRunning) {
+    startCovering();
+  } else if (state.coveringPaused) {
+    resumeCovering();
+  } else {
+    pauseCovering();
+  }
 });
 
 btnClear.addEventListener('click', clearAll);
