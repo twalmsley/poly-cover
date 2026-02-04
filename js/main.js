@@ -289,8 +289,8 @@ wrap.addEventListener('mousedown', (e) => {
     canvasState.handlePointerDown(e.clientX, e.clientY);
     return;
   }
-  if (state.drawMode && !state.coveringRunning && state.currentPolygon && state.currentPolygon.length >= 1) {
-    if (state.currentPolygon.length >= 2 && hitTestPolygonEdge(wx.x, wx.y, state.currentPolygon, CLOSE_HIT_THRESHOLD / canvasState.scale)) {
+  if (state.drawMode && !state.coveringRunning) {
+    if (state.currentPolygon && state.currentPolygon.length >= 2 && hitTestPolygonEdge(wx.x, wx.y, state.currentPolygon, CLOSE_HIT_THRESHOLD / canvasState.scale)) {
       closePolygon();
     } else {
       addPoint(wx.x, wx.y);
