@@ -4,7 +4,7 @@
  */
 
 import * as martinez from 'martinez-polygon-clipping';
-import { rectInsideRegion, bbox, circleInsideRegion } from './drawing.js';
+import { rectInsideRegion, bbox, circleInsideRegion, pointInRegion, distanceFromPointToRegionBoundary } from './drawing.js';
 import type { Point, Polygon, Rectangle, Region, CoveringStep, CoveringShape, Circle } from './types.js';
 
 const DEFAULT_MAX_K = 8;
@@ -205,48 +205,115 @@ function* diameterHalvingRange(maxK: number, minK: number): Generator<number> {
   }
 }
 
-function circleOverlapsExisting(cx: number, cy: number, r: number, circles: Circle[]): boolean {
-  for (const c of circles) {
-    const dist = Math.hypot(cx - c.cx, cy - c.cy);
-    if (dist < r + c.r) return true;
+const CIRCLE_SAMPLE_STEP = 4;
+const DISK_POLYGON_SEGMENTS = 32;
+const MIN_RADIUS = 2;
+const RADIUS_REDUCTION_FACTOR = 0.95;
+const SMALL_CIRCLE_THRESHOLD = 2;
+const NEGLIGIBLE_AREA = 0.5;
+
+/**
+ * Find the largest inscribed circle in a region (center inside, radius = distance to boundary).
+ * Uses grid sampling; optionally caps radius at maxRadius.
+ */
+function findLargestInscribedCircle(region: Region, maxRadius: number | null): { cx: number; cy: number; r: number } | null {
+  const bb = bbox(region);
+  let best: { cx: number; cy: number; r: number } | null = null;
+  const step = Math.max(1, Math.min(CIRCLE_SAMPLE_STEP, bb.w / 8, bb.h / 8));
+  for (let x = bb.x; x <= bb.x + bb.w; x += step) {
+    for (let y = bb.y; y <= bb.y + bb.h; y += step) {
+      if (!pointInRegion(x, y, region)) continue;
+      let r = distanceFromPointToRegionBoundary(x, y, region);
+      if (maxRadius != null) r = Math.min(r, maxRadius);
+      if (r > 0 && (best == null || r > best.r)) best = { cx: x, cy: y, r };
+    }
   }
-  return false;
+  return best;
 }
 
 /**
- * Run circle covering: place circles of diameter maxK, then fill gaps with maxK/2, maxK/4, ... down to minK.
- * Circles are placed on a grid (step = diameter) so same-size circles don't overlap; new circles must not overlap any existing.
+ * Approximate a circle as a closed polygon (ring) for martinez.
+ */
+function circleToRing(cx: number, cy: number, r: number, segments: number): number[][] {
+  const ring: number[][] = [];
+  for (let i = 0; i < segments; i++) {
+    const t = (2 * Math.PI * i) / segments;
+    ring.push([cx + r * Math.cos(t), cy + r * Math.sin(t)]);
+  }
+  if (ring.length > 0) ring.push([ring[0][0], ring[0][1]]);
+  return ring;
+}
+
+/**
+ * Subtract a disk (circle) from a region using polygon clipping. Returns one or more remaining regions.
+ */
+function regionMinusDisk(region: Region, cx: number, cy: number, r: number): Region[] {
+  const regionRings = toMartinezRegion(region);
+  const diskRing = circleToRing(cx, cy, r, DISK_POLYGON_SEGMENTS);
+  const result = martinez.diff(regionRings, [diskRing]);
+  if (!result || result.length === 0) return [];
+  return martinezResultToRegions(result);
+}
+
+/**
+ * Run circle covering: iterative largest-inscribed-circle with 5% radius reduction.
+ * Places the largest circle that fits in remaining area, subtracts it, then reduces max radius by 5%;
+ * for very small circles allows edge overlap to achieve full coverage.
  */
 function* runCoveringCircles(regions: Region[], _minSize: number, maxK: number, minK: number): Generator<CoveringStep> {
   const circles: Circle[] = [];
   const capK = Math.max(2, Math.min(1024, Math.floor(maxK)));
   const capMinK = Math.max(2, Math.min(capK, Math.floor(minK)));
+  const minRadius = Math.max(MIN_RADIUS, capMinK / 2);
   let iteration = 0;
 
   yield { rectangles: [], circles: [], remaining: [], iteration };
 
-  for (const diameter of diameterHalvingRange(capK, capMinK)) {
-    const r = diameter / 2;
-    let added = 0;
-    for (const reg of regions) {
-      const bb = bbox(reg);
-      for (let i = 0; ; i++) {
-        const cx = bb.x + r + i * diameter;
-        if (cx - r > bb.x + bb.w) break;
-        for (let j = 0; ; j++) {
-          const cy = bb.y + r + j * diameter;
-          if (cy - r > bb.y + bb.h) break;
-          if (!circleInsideRegion(cx, cy, r, reg)) continue;
-          if (circleOverlapsExisting(cx, cy, r, circles)) continue;
-          circles.push({ cx, cy, r });
-          added++;
-        }
+  let remainingRegions = [...regions];
+  let currentMaxRadius: number = Infinity;
+
+  const maxIterations = 2000;
+  while (iteration < maxIterations) {
+    let best: { cx: number; cy: number; r: number; regionIdx: number } | null = null;
+    for (let i = 0; i < remainingRegions.length; i++) {
+      const reg = remainingRegions[i];
+      if (regionArea(reg) < NEGLIGIBLE_AREA) continue;
+      const candidate = findLargestInscribedCircle(reg, currentMaxRadius === Infinity ? null : currentMaxRadius);
+      if (candidate && (best == null || candidate.r > best.r)) {
+        best = { ...candidate, regionIdx: i };
       }
     }
-    if (added > 0) {
-      iteration++;
-      yield { rectangles: [], circles: [...circles], remaining: [], iteration };
+
+    if (best == null) {
+      if (currentMaxRadius === Infinity) break;
+      currentMaxRadius = currentMaxRadius * RADIUS_REDUCTION_FACTOR;
+      if (currentMaxRadius < minRadius) break;
+      continue;
     }
+
+    let { cx, cy, r, regionIdx } = best;
+    if (r <= SMALL_CIRCLE_THRESHOLD) {
+      r = Math.max(r, minRadius * 0.5);
+    }
+    r = Math.min(r, capK / 2);
+    r = Math.max(r, minRadius * 0.5);
+
+    circles.push({ cx, cy, r });
+
+    const reg = remainingRegions[regionIdx];
+    const newRegions = regionMinusDisk(reg, cx, cy, r);
+    const nextRemaining = [...remainingRegions.slice(0, regionIdx), ...newRegions.filter(rr => regionArea(rr) >= NEGLIGIBLE_AREA), ...remainingRegions.slice(regionIdx + 1)];
+    remainingRegions = nextRemaining;
+
+    if (currentMaxRadius === Infinity) currentMaxRadius = r;
+    else currentMaxRadius = currentMaxRadius * RADIUS_REDUCTION_FACTOR;
+
+    iteration++;
+    yield { rectangles: [], circles: [...circles], remaining: [], iteration };
+
+    if (currentMaxRadius < minRadius) break;
+    const totalRemaining = remainingRegions.reduce((s, rr) => s + regionArea(rr), 0);
+    if (totalRemaining < NEGLIGIBLE_AREA) break;
   }
 
   yield { rectangles: [], circles, remaining: [], iteration };
@@ -383,6 +450,30 @@ function ringToPoints(ring: number[][]): Point[] {
   const pts = ring.map(([x, y]) => ({ x, y }));
   if (pts.length > 1 && pts[0].x === pts[pts.length - 1].x && pts[0].y === pts[pts.length - 1].y) pts.pop();
   return pts.length >= 3 ? pts : [];
+}
+
+/** Martinez Geometry (Polygon | MultiPolygon) to Region[]. Polygon = Ring[]; MultiPolygon = Polygon[]. */
+function martinezResultToRegions(result: number[][][] | number[][][][]): Region[] {
+  if (!result || result.length === 0) return [];
+  // Polygon: result[0] is Ring (Position[]), so result[0][0] is [x,y] -> result[0][0][0] is number.
+  // MultiPolygon: result[0] is Polygon (Ring[]), so result[0][0] is Ring -> result[0][0][0] is [x,y] (object).
+  const isMulti = result.length > 0 && typeof (result[0][0] as number[])[0] === 'object';
+  if (isMulti) {
+    const out: Region[] = [];
+    for (const poly of result as number[][][]) {
+      const rings = poly.map(ring => ringToPoints(ring)).filter(p => p.length >= 3);
+      if (rings.length === 0) continue;
+      const byArea = rings.map(r => ({ r, a: Math.abs(signedArea(r)) }));
+      byArea.sort((a, b) => b.a - a.a);
+      out.push({ exterior: byArea[0].r, holes: byArea.slice(1).map(x => x.r) });
+    }
+    return out;
+  }
+  const rings = (result as number[][][]).map(ring => ringToPoints(ring)).filter(p => p.length >= 3);
+  if (rings.length === 0) return [];
+  const byArea = rings.map(r => ({ r, a: Math.abs(signedArea(r)) }));
+  byArea.sort((a, b) => b.a - a.a);
+  return [{ exterior: byArea[0].r, holes: byArea.slice(1).map(x => x.r) }];
 }
 
 function signedArea(pts: Point[]): number {

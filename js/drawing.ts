@@ -26,7 +26,7 @@ export function pointInPolygon(px: number, py: number, points: Point[]): boolean
 /**
  * Region: either simple polygon (array of {x,y}) or { exterior, holes } where holes is array of point arrays.
  */
-function pointInRegion(px: number, py: number, region: Polygon | Region): boolean {
+export function pointInRegion(px: number, py: number, region: Polygon | Region): boolean {
   const exterior = Array.isArray(region) ? region : region.exterior;
   const holes = Array.isArray(region) ? [] : (region.holes || []);
   if (!pointInPolygon(px, py, exterior)) return false;
