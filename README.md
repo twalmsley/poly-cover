@@ -4,6 +4,8 @@ A web app that draws polygons and covers their interior with a minimal set of ax
 
 ![diagram](polygon-cover.png)
 
+**[📖 Tutorial](docs/TUTORIAL.md)** — Step-by-step guide from first run through drawing, covering, parameters, editing, and export.
+
 ## What it does
 
 - **Draw polygons** — Add vertices by clicking; close a polygon by clicking near the first point or double-clicking.
